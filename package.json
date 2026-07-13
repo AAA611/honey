@@ -1,0 +1,22 @@
+{
+  "name": "honey-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A local CLI harness for learning Codex or Claude Code style runtime design.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "eval": "node --enable-source-maps dist/evals/runEval.js",
+    "start": "node --enable-source-maps dist/cli.js"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
