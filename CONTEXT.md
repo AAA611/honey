@@ -12,5 +12,9 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **Plan**: the explicit lightweight task breakdown maintained by the runtime.
 - **Working set**: the active context slice sent to the model for the current turn.
 - **Summary**: compressed prior context retained after trimming.
+- **Session**: one interactive terminal conversation started by launching `honey`, preserving conversation, context, plan, and event continuity until the user exits.
+- **REPL mode**: the interactive terminal mode entered by running `honey` with no prompt argument, using single-line input and repeated turns.
+- **Command mode**: the one-shot CLI mode entered by running `honey "<prompt>"`, executing a single request and exiting.
+- **Bin entrypoint**: the packaged executable command exposed as `honey` through npm's `bin` field.
 
 This glossary is intentionally small and should grow only when a term becomes stable and necessary.

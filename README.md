@@ -101,6 +101,27 @@ The current provider is a **scripted provider** used to exercise the runtime and
 npm install
 ```
 
+### Local terminal install
+
+Primary local-dev path:
+
+```bash
+npm install
+npm run build
+npm link
+honey
+```
+
+Packaged install validation path:
+
+```bash
+npm install
+npm run build
+npm pack
+npm install -g ./honey-0.1.0.tgz
+honey
+```
+
 ### Validate the project
 
 ```bash

@@ -153,3 +153,10 @@ export interface HarnessRunResult {
   events: HarnessEvent[];
   plan: Plan;
 }
+
+export interface SessionSnapshot {
+  messages: ConversationMessage[];
+  context: ContextLayers;
+  plan: Plan | null;
+  history: HarnessRunResult[];
+}

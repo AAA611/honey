@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ScriptedProvider } from "../providers/scriptedProvider.js";
-import { createDefaultSystemPrompt, HarnessRuntime } from "./harness.js";
+import {
+  createDefaultSystemPrompt,
+  createHarnessSession,
+  HarnessRuntime
+} from "./harness.js";
 import { createDefaultTools } from "../tools/defaultTools.js";
 
 const tempDirs: string[] = [];
@@ -27,15 +31,15 @@ describe("HarnessRuntime", () => {
     expect(result.events.some((event) => event.type === "tool_call")).toBe(true);
   });
 
-  it("summarizes older working messages after repeated turns", async () => {
+  it("preserves shared session context across multiple turns", async () => {
     const dir = await makeFixtureDir();
-    await writeFile(join(dir, "note.txt"), "alpha", "utf8");
-    const runtime = createRuntime(dir);
+    const session = createHarnessSession(createRuntime(dir));
 
-    await runtime.run("read: note.txt");
-    const secondRun = await runtime.run("read: note.txt");
+    await session.runTurn("search: harness");
+    const secondRun = await session.runTurn("read: note.txt");
 
     expect(secondRun.events.length).toBeGreaterThan(0);
+    expect(session.snapshot().messages.length).toBeGreaterThan(2);
   });
 
   it("can apply a guarded patch when approval is enabled", async () => {
