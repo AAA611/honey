@@ -10,7 +10,7 @@ Honey already has a **Provider** seam (`sendTurn` → runtime-owned turn shapes)
 
 ## Decision
 
-Third-party models integrate through a generic **OpenAI Chat Completions–compatible** HTTP Provider. DeepSeek is the first **preset** (defaults: base `https://api.deepseek.com`, model `deepseek-v4-pro`), not a vendor-specific protocol class.
+Third-party models integrate through a generic **OpenAI Chat Completions–compatible** HTTP Provider. DeepSeek is the first **preset** (defaults: base `https://api.deepseek.com`, model `deepseek-v4-flash`), not a vendor-specific protocol class.
 
 Locked constraints for the first cut:
 

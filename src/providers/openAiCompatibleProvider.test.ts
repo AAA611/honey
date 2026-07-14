@@ -10,7 +10,7 @@ describe("OpenAiCompatibleProvider", () => {
       name: "deepseek",
       apiKey: "test-key",
       baseUrl: "https://api.deepseek.com",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       transport: async () =>
         jsonResponse({
           choices: [
@@ -54,7 +54,7 @@ describe("OpenAiCompatibleProvider", () => {
       name: "deepseek",
       apiKey: "test-key",
       baseUrl: "https://api.deepseek.com",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       transport: async () =>
         jsonResponse({
           choices: [
@@ -119,7 +119,7 @@ describe("OpenAiCompatibleProvider", () => {
       name: "deepseek",
       apiKey: "test-key",
       baseUrl: "https://api.deepseek.com",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       transport: async (_url, init) => {
         capturedBody = JSON.parse(String(init.body)) as { messages: unknown[] };
         return jsonResponse({
@@ -201,7 +201,7 @@ describe("OpenAiCompatibleProvider", () => {
       name: "deepseek",
       apiKey: "secret-key",
       baseUrl: "https://api.deepseek.com/",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       transport
     });
 
@@ -242,7 +242,7 @@ describe("OpenAiCompatibleProvider", () => {
       messages: unknown[];
       tools: unknown[];
     };
-    expect(body.model).toBe("deepseek-v4-pro");
+    expect(body.model).toBe("deepseek-v4-flash");
     expect(body.messages).toEqual([
       { role: "system", content: "sys" },
       { role: "user", content: "hello" },
@@ -268,7 +268,7 @@ describe("OpenAiCompatibleProvider", () => {
       name: "deepseek",
       apiKey: "test-key",
       baseUrl: "https://api.deepseek.com",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       transport: async () =>
         jsonResponse({ error: { message: "Invalid API key" } }, 401)
     });
@@ -287,7 +287,7 @@ describe("OpenAiCompatibleProvider", () => {
       name: "deepseek",
       apiKey: "test-key",
       baseUrl: "https://api.deepseek.com",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       transport: async () =>
         jsonResponse({
           choices: [
@@ -325,7 +325,7 @@ describe("OpenAiCompatibleProvider", () => {
       name: "deepseek",
       apiKey: "test-key",
       baseUrl: "https://api.deepseek.com",
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       transport: async () =>
         jsonResponse({
           choices: [

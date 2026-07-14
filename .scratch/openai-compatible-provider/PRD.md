@@ -16,7 +16,7 @@ Add a generic OpenAI Chat Completions–compatible Provider behind honey’s exi
 2. As a honey user, I want to pass `--provider deepseek` in Command mode, so that one prompt runs against DeepSeek instead of the scripted backend.
 3. As a honey user, I want to pass `--provider deepseek` in REPL mode, so that a Session’s repeated Turns use DeepSeek for the whole Session.
 4. As a honey user, I want DeepSeek to default to base URL `https://api.deepseek.com`, so that I do not have to memorize the endpoint for the common case.
-5. As a honey user, I want DeepSeek to default to model `deepseek-v4-pro`, so that the preset matches the model I intend to use.
+5. As a honey user, I want DeepSeek to default to model `deepseek-v4-flash`, so that the preset matches the model I intend to use.
 6. As a honey user, I want to override the model with a CLI flag, so that I can try another DeepSeek (or compatible) model id without changing code.
 7. As a honey user, I want to override the model with an environment variable, so that my shell profile can pin a default for explicit DeepSeek runs.
 8. As a honey user, I want to override the base URL with a CLI flag, so that I can point honey at a gateway or proxy.
@@ -56,7 +56,7 @@ Add a generic OpenAI Chat Completions–compatible Provider behind honey’s exi
   - honey system prompt + conversation messages + tool definitions → Chat Completions request body
   - Chat Completions message / `tool_calls` / finish reason / usage → honey assistant message, `ToolCall[]`, `stopReason`, optional `TokenUsage`
 - Inject HTTP transport (fetch-like or equivalent) into the Provider for testability; production wiring uses real HTTP.
-- DeepSeek preset defaults: base URL `https://api.deepseek.com`, model `deepseek-v4-pro`, Provider name suitable for logs/events (e.g. preset id `deepseek`).
+- DeepSeek preset defaults: base URL `https://api.deepseek.com`, model `deepseek-v4-flash`, Provider name suitable for logs/events (e.g. preset id `deepseek`).
 - Credential resolution for DeepSeek: `DEEPSEEK_API_KEY`, then `HONEY_API_KEY`; missing key with DeepSeek selected is a hard error.
 - CLI: default provider remains `scripted`. Accept explicit `--provider deepseek`. Allow overrides for model and base URL via flags and env (`HONEY_MODEL` / `HONEY_BASE_URL` or equivalent names consistent with the grilling lock). Unknown provider names fail fast.
 - CLI: `--allow-guarded-tools` sets `allowGuardedTools` on Harness config; default remains `false` for all providers including DeepSeek.

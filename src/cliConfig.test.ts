@@ -29,7 +29,7 @@ describe("CLI config seam", () => {
     });
     expect(runtime.provider).toBeInstanceOf(OpenAiCompatibleProvider);
     expect(runtime.provider.name).toBe("deepseek");
-    expect(runtime.model).toBe("deepseek-v4-pro");
+    expect(runtime.model).toBe("deepseek-v4-flash");
     expect(runtime.baseUrl).toBe("https://api.deepseek.com");
   });
 
@@ -124,7 +124,7 @@ describe("CLI config seam", () => {
 
   it("keeps scripted when provider is not deepseek even if model flags are set", () => {
     const runtime = createCliRuntime(
-      parseCliArgs(["--model", "deepseek-v4-pro", "prompt"]),
+      parseCliArgs(["--model", "deepseek-v4-flash", "prompt"]),
       { DEEPSEEK_API_KEY: "sk" }
     );
     expect(runtime.provider).toBeInstanceOf(ScriptedProvider);

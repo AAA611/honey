@@ -28,7 +28,7 @@ export interface CreateCliRuntimeOptions {
 }
 
 const DEEPSEEK_DEFAULT_BASE_URL = "https://api.deepseek.com";
-const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-pro";
+const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
 
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let provider: CliProviderName = "scripted";
