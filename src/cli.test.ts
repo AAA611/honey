@@ -29,6 +29,19 @@ describe("CLI seam", () => {
     expect(result.stdout).toContain("Bye.");
   });
 
+  it("prints Context inventory from the REPL context command", () => {
+    const result = spawnSync("node", [cliEntry], {
+      cwd: process.cwd(),
+      input: "context\nexit\n",
+      encoding: "utf8"
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Context inventory");
+    expect(result.stdout).toContain("Working set");
+    expect(result.stdout).toContain("Root set");
+  });
+
   it("does not print the Session banner in command mode", () => {
     const result = spawnSync("node", [cliEntry, "read: CONTEXT.md"], {
       cwd: process.cwd(),

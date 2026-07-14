@@ -1,9 +1,25 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  assembleProviderMessages,
+  assembleSystemPrompt,
+  createAssemblySnapshot
+} from "../context/assemble.js";
+import { compactIfNeeded } from "../context/compact.js";
+import { formatContextInventory } from "../context/inventory.js";
 import { appendWorkingMessages, createContextLayers } from "../context/layers.js";
+import { autoPinFromUserInput } from "../context/pin.js";
+import { loadProjectInstructions } from "../context/projectInstructions.js";
+import {
+  decideTaskTransition,
+  stripTaskSwitchPrefix
+} from "../context/taskTransition.js";
 import { EventLogger } from "../logging/eventLogger.js";
 import { createInitialPlan, markPlanStep } from "../planning/plan.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type {
+  AssemblySnapshot,
   AssistantMessage,
   ConversationMessage,
   ContextLayers,
@@ -70,16 +86,18 @@ export class HarnessRuntime {
 }
 
 export class HarnessSession {
-  private conversation: ConversationMessage[] = [];
+  private transcript: ConversationMessage[] = [];
   private context: ContextLayers;
   private plan: Plan | null = null;
   private readonly history: HarnessRunResult[] = [];
+  private readonly assemblySnapshots: AssemblySnapshot[] = [];
 
   constructor(private readonly runtime: HarnessRuntime) {
-    this.context = createContextLayers(
-      this.runtime.config.systemPrompt,
-      "Interactive session"
-    );
+    this.context = createContextLayers({
+      system: this.runtime.config.systemPrompt,
+      projectInstructions: loadProjectInstructions(this.runtime.config.cwd),
+      environment: formatEnvironment(this.runtime.config)
+    });
   }
 
   async runTurn(userInput: string): Promise<HarnessRunResult> {
@@ -87,28 +105,76 @@ export class HarnessSession {
     const turnId = randomUUID();
     let state: HarnessState = "USER_INPUT";
     let output = "";
-    this.plan ??= createInitialPlan(userInput);
 
-    const userMessage: ConversationMessage = { role: "user", content: userInput };
-    this.conversation = [...this.conversation, userMessage];
+    const transitionKind = decideTaskTransition({
+      userInput,
+      currentTask: this.context.task,
+      plan: this.plan
+    });
+    const effectiveInput =
+      transitionKind === "replace" ? stripTaskSwitchPrefix(userInput) : userInput;
+
+    if (transitionKind === "replace" || !this.plan) {
+      this.context = {
+        ...this.context,
+        task: formatTask(effectiveInput)
+      };
+      this.plan = createInitialPlan(effectiveInput);
+    }
+
+    this.context = {
+      ...this.context,
+      pinned: autoPinFromUserInput(
+        effectiveInput,
+        this.context.pinned,
+        (relativePath) => readExcerpt(this.runtime.config.cwd, relativePath)
+      )
+    };
+
+    const userMessage: ConversationMessage = {
+      role: "user",
+      content: effectiveInput
+    };
+    this.transcript = [...this.transcript, userMessage];
     this.context = appendWorkingMessages(this.context, [userMessage]);
+    this.context = compactIfNeeded(
+      this.context,
+      this.plan,
+      this.runtime.config.tokenBudget
+    );
 
     logger.emit(
       "run_started",
-      { provider: this.runtime.provider.name, input: userInput },
+      { provider: this.runtime.provider.name, input: effectiveInput },
       turnId
     );
     logger.emit("plan_updated", { plan: this.plan }, turnId);
 
     for (let turn = 0; turn < this.runtime.config.maxTurns; turn += 1) {
       state = transition(logger, turnId, state, "MODEL_TURN");
+      this.context = compactIfNeeded(
+        this.context,
+        this.plan,
+        this.runtime.config.tokenBudget
+      );
+      const assembledSystem = assembleSystemPrompt(this.context, this.plan);
+      const assembledMessages = assembleProviderMessages(this.context);
+      const assemblySnapshot = createAssemblySnapshot(this.context, this.plan);
+      this.assemblySnapshots.push(assemblySnapshot);
+
       logger.emit(
         "model_request",
         {
-          system: this.context.system,
+          assembled: true,
+          systemPrompt: assembledSystem,
           task: this.context.task,
+          projectInstructionsChars: this.context.projectInstructions.length,
           summary: this.context.summary,
-          workingSetCount: this.context.workingSet.length
+          workingSetCount: this.context.workingSet.length,
+          pinnedCount: this.context.pinned.length,
+          environment: this.context.environment,
+          tokenEstimate: assemblySnapshot.tokenEstimate,
+          compaction: this.context.compaction
         },
         turnId
       );
@@ -116,8 +182,8 @@ export class HarnessSession {
       let response;
       try {
         response = await this.runtime.provider.sendTurn({
-          systemPrompt: this.context.system,
-          messages: [...this.conversation],
+          systemPrompt: assembledSystem,
+          messages: assembledMessages,
           tools: this.runtime.toolRegistry.definitions()
         });
       } catch (error: unknown) {
@@ -140,13 +206,16 @@ export class HarnessSession {
       );
 
       if (response.assistantMessage) {
-        this.conversation = [...this.conversation, response.assistantMessage];
-        this.context = appendWorkingMessages(this.context, [response.assistantMessage]);
+        this.transcript = [...this.transcript, response.assistantMessage];
+        this.context = appendWorkingMessages(this.context, [
+          response.assistantMessage
+        ]);
       }
 
       if (response.stopReason === "completed" && response.assistantMessage) {
         state = transition(logger, turnId, state, "DONE");
         this.plan = markPlanStep(this.plan, "understand-request", "done");
+        this.plan = markPlanStep(this.plan, "use-tools", "done");
         this.plan = markPlanStep(this.plan, "report", "done");
         logger.emit("plan_updated", { plan: this.plan }, turnId);
         output = response.assistantMessage.content;
@@ -180,8 +249,13 @@ export class HarnessSession {
         });
       }
 
-      this.conversation = [...this.conversation, ...toolMessages];
+      this.transcript = [...this.transcript, ...toolMessages];
       this.context = appendWorkingMessages(this.context, toolMessages);
+      this.context = compactIfNeeded(
+        this.context,
+        this.plan,
+        this.runtime.config.tokenBudget
+      );
       state = transition(logger, turnId, state, "TOOL_RESULT");
     }
 
@@ -196,28 +270,85 @@ export class HarnessSession {
       finalState: state,
       output,
       events: logger.snapshot(),
-      plan: this.plan
+      plan: this.plan!
     };
     this.history.push(result);
     return result;
   }
 
+  formatContextInventory(): string {
+    return formatContextInventory(
+      this.context,
+      this.plan,
+      this.runtime.config.tokenBudget
+    );
+  }
+
+  clear(): void {
+    this.transcript = [];
+    this.plan = null;
+    this.history.length = 0;
+    this.assemblySnapshots.length = 0;
+    const projectInstructions = this.context.projectInstructions;
+    this.context = createContextLayers({
+      system: this.runtime.config.systemPrompt,
+      projectInstructions,
+      environment: formatEnvironment(this.runtime.config)
+    });
+  }
+
   snapshot(): SessionSnapshot {
+    const transcript = [...this.transcript];
     return {
-      messages: [...this.conversation],
+      transcript,
+      messages: transcript,
       context: {
         ...this.context,
         workingSet: [...this.context.workingSet],
-        summary: [...this.context.summary]
+        summary: [...this.context.summary],
+        pinned: this.context.pinned.map((item) => ({ ...item })),
+        compaction: { ...this.context.compaction }
       },
       plan: this.plan,
-      history: [...this.history]
+      history: [...this.history],
+      assemblySnapshots: this.assemblySnapshots.map((item) => ({
+        ...item,
+        layers: {
+          ...item.layers,
+          summary: [...item.layers.summary],
+          workingSetRoles: [...item.layers.workingSetRoles],
+          planSteps: item.layers.planSteps.map((step) => ({ ...step })),
+          pinned: item.layers.pinned.map((pinned) => ({ ...pinned }))
+        },
+        compaction: { ...item.compaction }
+      }))
     };
   }
 }
 
 export function createHarnessSession(runtime: HarnessRuntime): HarnessSession {
   return new HarnessSession(runtime);
+}
+
+function formatTask(userInput: string): string {
+  return `Goal: ${userInput}\nAcceptance: complete the request and report outcomes.`;
+}
+
+function formatEnvironment(config: HarnessConfig): string {
+  return [
+    `cwd: ${config.cwd}`,
+    `allowGuardedTools: ${config.allowGuardedTools}`,
+    `tokenBudget: ${config.tokenBudget}`
+  ].join("\n");
+}
+
+function readExcerpt(cwd: string, relativePath: string): string | null {
+  try {
+    const content = readFileSync(join(cwd, relativePath), "utf8");
+    return content.slice(0, 1_200);
+  } catch {
+    return null;
+  }
 }
 
 function transition(

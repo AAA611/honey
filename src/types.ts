@@ -117,11 +117,48 @@ export interface Plan {
   steps: PlanStep[];
 }
 
+export interface PinnedArtifact {
+  id: string;
+  label: string;
+  content: string;
+}
+
+export interface CompactionStatus {
+  clearedTools: boolean;
+  summarized: boolean;
+}
+
 export interface ContextLayers {
   system: string;
+  projectInstructions: string;
   task: string;
+  environment: string;
   workingSet: ConversationMessage[];
   summary: string[];
+  pinned: PinnedArtifact[];
+  compaction: CompactionStatus;
+}
+
+export interface SummaryWriter {
+  write(messages: ConversationMessage[]): string;
+}
+
+export interface AssemblySnapshot {
+  timestamp: string;
+  tokenEstimate: number;
+  compaction: CompactionStatus;
+  layers: {
+    system: string;
+    projectInstructions: string;
+    task: string;
+    environment: string;
+    summary: string[];
+    workingSetCount: number;
+    workingSetRoles: Array<ConversationMessage["role"]>;
+    pinned: PinnedArtifact[];
+    planGoal: string | null;
+    planSteps: Array<{ id: string; status: PlanStep["status"] }>;
+  };
 }
 
 export interface HarnessEvent {
@@ -146,6 +183,7 @@ export interface HarnessConfig {
   maxTurns: number;
   allowGuardedTools: boolean;
   systemPrompt: string;
+  tokenBudget: number;
 }
 
 export interface HarnessRunResult {
@@ -156,8 +194,11 @@ export interface HarnessRunResult {
 }
 
 export interface SessionSnapshot {
+  transcript: ConversationMessage[];
+  /** @deprecated Use transcript. Kept temporarily for migration clarity in callers. */
   messages: ConversationMessage[];
   context: ContextLayers;
   plan: Plan | null;
   history: HarnessRunResult[];
+  assemblySnapshots: AssemblySnapshot[];
 }

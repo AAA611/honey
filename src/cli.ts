@@ -48,8 +48,14 @@ async function runRepl(runtime: HarnessRuntime) {
       }
 
       if (line === "clear") {
+        session.clear();
         stdout.write("\x1Bc");
         writeSessionBanner();
+        continue;
+      }
+
+      if (line === "context") {
+        stdout.write(session.formatContextInventory());
         continue;
       }
 
@@ -76,7 +82,8 @@ function createRuntime(provider: Provider, allowGuardedTools: boolean) {
     cwd: cwd(),
     maxTurns: 4,
     allowGuardedTools,
-    systemPrompt: createDefaultSystemPrompt()
+    systemPrompt: createDefaultSystemPrompt(),
+    tokenBudget: 24_000
   });
 }
 
