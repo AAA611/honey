@@ -16,5 +16,7 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **REPL mode**: the interactive terminal mode entered by running `honey` with no prompt argument, using single-line input and repeated turns.
 - **Command mode**: the one-shot CLI mode entered by running `honey "<prompt>"`, executing a single request and exiting.
 - **Bin entrypoint**: the packaged executable command exposed as `honey` through npm's `bin` field.
+- **Session banner**: the branded welcome surface of a Session (ASCII wordmark plus a short usage line), shown on Session entry and after `clear`, and never in Command mode.
+  _Avoid_: splash screen, startup logo, welcome message
 
 This glossary is intentionally small and should grow only when a term becomes stable and necessary.

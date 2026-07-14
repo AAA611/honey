@@ -8,6 +8,7 @@ import {
   createHarnessSession,
   HarnessRuntime
 } from "./runtime/harness.js";
+import { formatSessionBanner } from "./sessionBanner.js";
 import { createDefaultTools } from "./tools/defaultTools.js";
 import type { Provider } from "./types.js";
 
@@ -32,7 +33,7 @@ async function runRepl(runtime: HarnessRuntime) {
     output: stdout
   });
 
-  stdout.write("Honey REPL. Type a prompt, or use `exit` to quit.\n");
+  writeSessionBanner();
 
   try {
     while (true) {
@@ -48,6 +49,7 @@ async function runRepl(runtime: HarnessRuntime) {
 
       if (line === "clear") {
         stdout.write("\x1Bc");
+        writeSessionBanner();
         continue;
       }
 
@@ -57,6 +59,16 @@ async function runRepl(runtime: HarnessRuntime) {
   } finally {
     rl.close();
   }
+}
+
+function writeSessionBanner() {
+  stdout.write(
+    formatSessionBanner({
+      isTTY: stdout.isTTY === true,
+      columns: stdout.columns,
+      noColor: Boolean(env.NO_COLOR)
+    })
+  );
 }
 
 function createRuntime(provider: Provider, allowGuardedTools: boolean) {

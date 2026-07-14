@@ -23,8 +23,21 @@ describe("CLI seam", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Honey REPL.");
+    // spawnSync is not a TTY, so the Session banner is omitted by design.
+    expect(result.stdout).not.toContain("Honey REPL.");
+    expect(result.stdout).not.toContain("Type a prompt, or exit to quit.");
     expect(result.stdout).toContain("Bye.");
+  });
+
+  it("does not print the Session banner in command mode", () => {
+    const result = spawnSync("node", [cliEntry, "read: CONTEXT.md"], {
+      cwd: process.cwd(),
+      encoding: "utf8"
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toContain("Type a prompt, or exit to quit.");
+    expect(result.stdout).not.toContain("__________");
   });
 
   it("rejects DeepSeek without an API key", () => {
