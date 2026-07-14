@@ -9,6 +9,7 @@ import {
   HarnessRuntime
 } from "./harness.js";
 import { createDefaultTools } from "../tools/defaultTools.js";
+import type { Provider } from "../types.js";
 
 const tempDirs: string[] = [];
 
@@ -83,9 +84,29 @@ describe("HarnessRuntime", () => {
     expect(result.finalState).toBe("DONE");
     expect(updated).toBe("after");
   });
+
+  it("surfaces Provider failures as a failed Run", async () => {
+    const dir = await makeFixtureDir();
+    const runtime = createRuntime(dir, false, {
+      name: "failing-provider",
+      async sendTurn() {
+        throw new Error("OpenAI-compatible provider HTTP 401: Invalid API key");
+      }
+    });
+
+    const result = await runtime.run("hello");
+
+    expect(result.finalState).toBe("ERROR");
+    expect(result.output).toContain("HTTP 401");
+    expect(result.events.some((event) => event.type === "error")).toBe(true);
+  });
 });
 
-function createRuntime(dir: string, allowGuardedTools = false, provider = new ScriptedProvider()) {
+function createRuntime(
+  dir: string,
+  allowGuardedTools = false,
+  provider: Provider = new ScriptedProvider()
+) {
   return new HarnessRuntime(provider, createDefaultTools(), {
     cwd: dir,
     maxTurns: 4,

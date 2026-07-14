@@ -113,11 +113,20 @@ export class HarnessSession {
         turnId
       );
 
-      const response = await this.runtime.provider.sendTurn({
-        systemPrompt: this.context.system,
-        messages: [...this.conversation],
-        tools: this.runtime.toolRegistry.definitions()
-      });
+      let response;
+      try {
+        response = await this.runtime.provider.sendTurn({
+          systemPrompt: this.context.system,
+          messages: [...this.conversation],
+          tools: this.runtime.toolRegistry.definitions()
+        });
+      } catch (error: unknown) {
+        state = transition(logger, turnId, state, "ERROR");
+        output =
+          error instanceof Error ? error.message : `Provider error: ${String(error)}`;
+        logger.emit("error", { output }, turnId);
+        break;
+      }
 
       logger.emit(
         "model_response",

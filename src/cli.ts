@@ -1,28 +1,31 @@
 #!/usr/bin/env node
 
 import { createInterface } from "node:readline/promises";
-import { cwd, stdin, stdout } from "node:process";
-import { ScriptedProvider } from "./providers/scriptedProvider.js";
+import { cwd, env, stdin, stdout } from "node:process";
+import { createCliRuntime, parseCliArgs } from "./cliConfig.js";
 import {
   createDefaultSystemPrompt,
   createHarnessSession,
   HarnessRuntime
 } from "./runtime/harness.js";
 import { createDefaultTools } from "./tools/defaultTools.js";
+import type { Provider } from "./types.js";
 
 async function main() {
-  const input = process.argv.slice(2).join(" ").trim();
-  if (input) {
-    const result = await createRuntime().run(input);
+  const args = parseCliArgs(process.argv.slice(2));
+  const cli = createCliRuntime(args, env);
+  const runtime = createRuntime(cli.provider, cli.allowGuardedTools);
+
+  if (cli.prompt) {
+    const result = await runtime.run(cli.prompt);
     stdout.write(`${result.output}\n`);
     return;
   }
 
-  await runRepl();
+  await runRepl(runtime);
 }
 
-async function runRepl() {
-  const runtime = createRuntime();
+async function runRepl(runtime: HarnessRuntime) {
   const session = createHarnessSession(runtime);
   const rl = createInterface({
     input: stdin,
@@ -56,11 +59,11 @@ async function runRepl() {
   }
 }
 
-function createRuntime() {
-  return new HarnessRuntime(new ScriptedProvider(), createDefaultTools(), {
+function createRuntime(provider: Provider, allowGuardedTools: boolean) {
+  return new HarnessRuntime(provider, createDefaultTools(), {
     cwd: cwd(),
     maxTurns: 4,
-    allowGuardedTools: false,
+    allowGuardedTools,
     systemPrompt: createDefaultSystemPrompt()
   });
 }

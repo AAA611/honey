@@ -41,6 +41,7 @@ export interface ToolCall {
 export interface AssistantMessage {
   role: "assistant";
   content: string;
+  toolCalls?: ToolCall[];
 }
 
 export interface ToolResultMessage {

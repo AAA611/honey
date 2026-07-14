@@ -26,4 +26,33 @@ describe("CLI seam", () => {
     expect(result.stdout).toContain("Honey REPL.");
     expect(result.stdout).toContain("Bye.");
   });
+
+  it("rejects DeepSeek without an API key", () => {
+    const result = spawnSync(
+      "node",
+      [cliEntry, "--provider", "deepseek", "hello"],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DEEPSEEK_API_KEY: "",
+          HONEY_API_KEY: ""
+        }
+      }
+    );
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("DEEPSEEK_API_KEY");
+  });
+
+  it("rejects an unknown provider", () => {
+    const result = spawnSync("node", [cliEntry, "--provider", "anthropic"], {
+      cwd: process.cwd(),
+      encoding: "utf8"
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Unknown provider");
+  });
 });

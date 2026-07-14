@@ -79,12 +79,11 @@ Honey does **not** currently ship:
 - multi-agent orchestration
 - hosted services
 - browser automation
-- real model provider integration
 - long-term memory
 - advanced approval workflows
 - TUI or desktop UX
 
-The current provider is a **scripted provider** used to exercise the runtime and tool loop without depending on an external API.
+Default CLI runs still use a **scripted provider** so demos and tests do not depend on an external API. An optional OpenAI-compatible Provider (DeepSeek preset) can be selected explicitly when you want a live model Turn.
 
 ---
 
@@ -153,9 +152,9 @@ npm run eval
 
 ## CLI Behavior Right Now
 
-The demo CLI currently uses the scripted provider.
+Default: scripted Provider.
 
-Supported demo prompt patterns:
+Supported scripted demo prompt patterns:
 
 - `read: <path>`
 - `search: <query>`
@@ -166,6 +165,15 @@ Example:
 npm run build
 node dist/cli.js "read: CONTEXT.md"
 ```
+
+Optional live DeepSeek preset (OpenAI Chat Completions–compatible; requires an API key). This is a **manual smoke** path — automated tests use a fake HTTP transport and do **not** call DeepSeek in CI:
+
+```bash
+export DEEPSEEK_API_KEY=...
+honey --provider deepseek --allow-guarded-tools "read CONTEXT.md and summarize"
+```
+
+Overrides: `--model`, `--base-url`, or env `HONEY_MODEL` / `HONEY_BASE_URL`. Key fallback: `HONEY_API_KEY`. Guarded Tools stay off unless `--allow-guarded-tools` is set. Live calls are opt-in via `--provider deepseek`; missing credentials fail loudly.
 
 That path exercises the real harness runtime:
 
@@ -243,12 +251,12 @@ npm run eval
 
 Planned next steps for the harness:
 
-- real provider integration behind the existing provider interface
 - richer guarded approval flows
 - stronger patch formats and edit validation
 - persistent event-log storage
 - higher-signal eval fixtures
 - better session inspection and streaming UX
+- optional `--provider openai-compatible` CLI sugar on top of the existing adapter
 
 ---
 
