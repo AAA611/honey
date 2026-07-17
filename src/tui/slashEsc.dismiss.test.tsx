@@ -160,8 +160,8 @@ describe("slash Esc dismiss (Ink stdin path)", () => {
     expect(lastFrame()).toContain("/context");
 
     // Ink may deliver `\x1b[` then `27;1:3u` as separate readable chunks.
+    // Second chunk must arrive before the lone-`[` timeout dismiss (40ms).
     stdin.write("\u001b[");
-    await settle(40);
     stdin.write("27;1:3u");
     await settle(80);
 
@@ -171,6 +171,27 @@ describe("slash Esc dismiss (Ink stdin path)", () => {
     );
     expect(closedFrame).not.toContain("/context —");
     expect(closedFrame).not.toContain("[27");
+  });
+
+  it("dismisses after a lone CSI `[` fragment times out (split Esc with no follow-up)", async () => {
+    const { runtime, session } = createMocks();
+    const { lastFrame, stdin, unmount } = render(
+      <SessionTuiApp runtime={runtime} session={session} />
+    );
+    cleanups.push(unmount);
+
+    await settle();
+    stdin.write("/");
+    await settle(80);
+    expect(lastFrame()).toContain("/context");
+
+    // Ink delivers `\x1b[` as input "[" with escape=false.
+    stdin.write("\u001b[");
+    await settle(120);
+
+    const closedFrame = lastFrame() ?? "";
+    expect(closedFrame).not.toContain("/context —");
+    expect(closedFrame).not.toMatch(/honey›\s*\//);
   });
 });
 

@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import type { HarnessRuntime, HarnessSession } from "../runtime/harness.js";
 import type { ConversationMessage } from "../types.js";
 import { StatusBar } from "./StatusBar.js";
@@ -19,6 +21,40 @@ import {
   pushKittyCsiFragment
 } from "./keys.js";
 
+const KEYLOG_DIR = join(process.cwd(), ".honey");
+const KEYLOG_PATH = join(KEYLOG_DIR, "keylog.jsonl");
+const DEBUG_KEYS = process.env.HONEY_DEBUG_KEYS !== "0";
+
+function formatKeyDebug(
+  input: string,
+  key: { escape: boolean; ctrl: boolean; meta: boolean; upArrow: boolean; downArrow: boolean }
+): string {
+  const hex = [...input]
+    .map((ch) => ch.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join(" ");
+  const flags = [
+    key.escape ? "esc" : "",
+    key.ctrl ? "ctrl" : "",
+    key.meta ? "meta" : "",
+    key.upArrow ? "up" : "",
+    key.downArrow ? "down" : ""
+  ]
+    .filter(Boolean)
+    .join("+");
+  return `in=${JSON.stringify(input)} hex=${hex || "∅"} ${flags || "—"}`;
+}
+
+function logKeyDebug(line: string): void {
+  if (!DEBUG_KEYS) {
+    return;
+  }
+  try {
+    mkdirSync(KEYLOG_DIR, { recursive: true });
+    appendFileSync(KEYLOG_PATH, `${line}\n`, "utf8");
+  } catch {
+    // ignore logging failures
+  }
+}
 export type SessionTuiProps = {
   runtime: HarnessRuntime;
   session: HarnessSession;
@@ -39,6 +75,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     prompt: string;
     resolve: (ok: boolean) => void;
   }>(null);
+  const [lastKeyDebug, setLastKeyDebug] = useState<string | null>(null);
 
   const skills = props.runtime.skillRegistry.list();
   const slashQuery = getSlashQuery(value);
@@ -69,6 +106,14 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   };
   /** Reassembles Kitty CSI-u when stdin splits `\x1b[` from `27u`. */
   const kittyCsiBufferRef = useRef("");
+  const kittyCsiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearKittyCsiTimer = useCallback(() => {
+    if (kittyCsiTimerRef.current !== null) {
+      clearTimeout(kittyCsiTimerRef.current);
+      kittyCsiTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -84,11 +129,14 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       });
   }, [props.runtime]);
 
+  useEffect(() => () => clearKittyCsiTimer(), [clearKittyCsiTimer]);
+
   const dismissSlash = useCallback(() => {
+    clearKittyCsiTimer();
+    kittyCsiBufferRef.current = "";
     setValue("");
     setSelectedIndex(0);
-  }, []);
-
+  }, [clearKittyCsiTimer]);
   const applySlashItem = useCallback(
     async (item: SlashItem, currentValue: string): Promise<void> => {
       if (item.kind === "skill") {
@@ -176,9 +224,24 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       delete: boolean;
     }) => {
       const current = stateRef.current;
+      setLastKeyDebug(formatKeyDebug(input, key));
+      logKeyDebug(
+        JSON.stringify({
+          t: Date.now(),
+          slashOpen: current.slashOpen,
+          value: current.value,
+          input,
+          escape: key.escape,
+          ctrl: key.ctrl,
+          meta: key.meta,
+          up: key.upArrow,
+          down: key.downArrow
+        })
+      );
 
       // Bare Esc clears any half-read CSI fragment.
       if (key.escape) {
+        clearKittyCsiTimer();
         kittyCsiBufferRef.current = "";
       }
 
@@ -204,12 +267,30 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           key.escape ||
           (key.ctrl && (input === "c" || input === "g" || input === "G"))
         ) {
+          clearKittyCsiTimer();
           kittyCsiBufferRef.current = "";
           effectiveInput = input;
         } else {
+          // Esc often arrives as `\x1b[` with no follow-up in some hosts.
+          // If we're still sitting on a lone `[` shortly after, treat as dismiss.
+          clearKittyCsiTimer();
+          if (current.slashOpen && assembled.buffer === "[") {
+            kittyCsiTimerRef.current = setTimeout(() => {
+              if (kittyCsiBufferRef.current === "[") {
+                logKeyDebug(
+                  JSON.stringify({
+                    t: Date.now(),
+                    event: "csi-bracket-timeout-dismiss"
+                  })
+                );
+                dismissSlash();
+              }
+            }, 40);
+          }
           return;
         }
       } else if (assembled.completed !== null) {
+        clearKittyCsiTimer();
         effectiveInput = assembled.completed;
       }
 
@@ -307,7 +388,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         setValue((text) => `${text}${effectiveInput}`);
       }
     },
-    [applySlashItem, dismissSlash, exit, submit]
+    [applySlashItem, clearKittyCsiTimer, dismissSlash, exit, submit]
   );
 
   useInput(onInput);
@@ -334,6 +415,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           items={slashItems}
           selectedIndex={overlayIndex}
           query={slashQuery ?? ""}
+          lastKeyDebug={lastKeyDebug}
         />
       ) : null}
       <Box borderStyle="single" borderColor={busy ? "yellow" : "green"} paddingX={1}>

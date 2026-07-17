@@ -6,6 +6,7 @@ export function SlashOverlay(props: {
   items: SlashItem[];
   selectedIndex: number;
   query: string;
+  lastKeyDebug?: string | null;
 }): React.ReactElement {
   const visible = props.items.slice(0, 12);
   return (
@@ -17,8 +18,14 @@ export function SlashOverlay(props: {
       marginBottom={1}
     >
       <Text color="cyan" bold>
-        /{props.query || "…"} — ↑↓ · Enter/Tab · Esc/Ctrl+G/Ctrl+C dismiss
+        /{props.query || "…"} — ↑↓ · Enter/Tab · Ctrl+G dismiss (Esc/Ctrl+[ if terminal
+        forwards it)
       </Text>
+      {props.lastKeyDebug ? (
+        <Text dimColor>last key: {props.lastKeyDebug}</Text>
+      ) : (
+        <Text dimColor>last key: (none yet — if Esc leaves this unchanged, host ate Esc)</Text>
+      )}
       {visible.length === 0 ? (
         <Text dimColor>No matches</Text>
       ) : (
