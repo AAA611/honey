@@ -1,4 +1,4 @@
 interface:
   display_name: "Honey Git Commit"
-  short_description: "Summarize staged changes and commit this repo"
-  default_prompt: "Use $honey-git-commit to summarize the staged changes in this repo, generate the final git subject, and create the commit."
+  short_description: "Detect commit intents from staged changes and commit (split if multi-intent)"
+  default_prompt: "Use $honey-git-commit to inspect only staged changes, auto-detect commit intents, propose type(scope): subject lines, and commit—splitting into multiple commits when intents are unrelated."
