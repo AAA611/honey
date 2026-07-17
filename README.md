@@ -6,7 +6,7 @@
 
 <p align="center">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" />
-  <img alt="Node.js >=18.18" src="https://img.shields.io/badge/Node.js-%3E%3D18.18-339933?logo=nodedotjs&logoColor=white" />
+  <img alt="Node.js 18.18+" src="https://img.shields.io/badge/Node.js-%3E%3D18.18-339933?logo=nodedotjs&logoColor=white" />
   <img alt="Vitest" src="https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=white" />
   <img alt="version 0.1.0" src="https://img.shields.io/badge/version-0.1.0-0B6E4F" />
 </p>

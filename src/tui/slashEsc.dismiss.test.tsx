@@ -100,6 +100,8 @@ describe("slash Esc dismiss (Ink stdin path)", () => {
    * Cursor/VS Code integrated terminal often enables Kitty keyboard protocol,
    * which encodes Esc as CSI u (`\x1b[27u`) instead of bare `\x1b`.
    * Ink's parseKeypress does not set key.escape for that — this is the user bug.
+   * Event-type forms (`[27;1:3u`) and split reads must also dismiss without
+   * polluting the Composer (otherwise the list filters to empty).
    */
   it("hides the slash overlay when Kitty-encoded Esc (CSI u) arrives after /", async () => {
     const { runtime, session } = createMocks();
@@ -122,6 +124,53 @@ describe("slash Esc dismiss (Ink stdin path)", () => {
     );
     expect(closedFrame).not.toContain("/context —");
     expect(closedFrame).not.toContain("[27u");
+  });
+
+  it("dismisses on Kitty Esc with event-type params ([27;1:3u])", async () => {
+    const { runtime, session } = createMocks();
+    const { lastFrame, stdin, unmount } = render(
+      <SessionTuiApp runtime={runtime} session={session} />
+    );
+    cleanups.push(unmount);
+
+    await settle();
+    stdin.write("/");
+    await settle(80);
+    expect(lastFrame()).toContain("/context");
+
+    stdin.write("\u001b[27;1:3u");
+    await settle(80);
+
+    const closedFrame = lastFrame() ?? "";
+    expect(closedFrame).not.toMatch(/honey›\s*\//);
+    expect(closedFrame).not.toContain("/context —");
+    expect(closedFrame).not.toContain("[27");
+  });
+
+  it("dismisses when Kitty Esc arrives as split stdin chunks", async () => {
+    const { runtime, session } = createMocks();
+    const { lastFrame, stdin, unmount } = render(
+      <SessionTuiApp runtime={runtime} session={session} />
+    );
+    cleanups.push(unmount);
+
+    await settle();
+    stdin.write("/");
+    await settle(80);
+    expect(lastFrame()).toContain("/context");
+
+    // Ink may deliver `\x1b[` then `27;1:3u` as separate readable chunks.
+    stdin.write("\u001b[");
+    await settle(40);
+    stdin.write("27;1:3u");
+    await settle(80);
+
+    const closedFrame = lastFrame() ?? "";
+    expect(closedFrame, "must not leave CSI garbage in composer").not.toMatch(
+      /honey›\s*\//
+    );
+    expect(closedFrame).not.toContain("/context —");
+    expect(closedFrame).not.toContain("[27");
   });
 });
 

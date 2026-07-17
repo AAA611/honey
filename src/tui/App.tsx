@@ -13,7 +13,11 @@ import {
   insertSkillMention,
   type SlashItem
 } from "./slashItems.js";
-import { isSlashDismissKey } from "./keys.js";
+import {
+  isKittyCsiUInput,
+  isSlashDismissKey,
+  pushKittyCsiFragment
+} from "./keys.js";
 
 export type SessionTuiProps = {
   runtime: HarnessRuntime;
@@ -63,6 +67,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     slashItems,
     selectedIndex
   };
+  /** Reassembles Kitty CSI-u when stdin splits `\x1b[` from `27u`. */
+  const kittyCsiBufferRef = useRef("");
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -170,18 +176,57 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       delete: boolean;
     }) => {
       const current = stateRef.current;
-      // Ink sets key.escape for Esc; Cursor may not forward Esc — also Ctrl+G.
-      const isDismiss = isSlashDismissKey(input, key);
+
+      // Bare Esc clears any half-read CSI fragment.
+      if (key.escape) {
+        kittyCsiBufferRef.current = "";
+      }
+
+      // Kitty CSI-u may arrive split (`[` then `27;1:3u`). Reassemble before
+      // treating input as printable — otherwise Composer becomes `/[27u` and
+      // the overlay filters to nothing (Esc "fails" + skills unselectable).
+      let effectiveInput = input;
+      const assembled = pushKittyCsiFragment(
+        kittyCsiBufferRef.current,
+        input,
+        { bufferLoneBracket: current.slashOpen }
+      );
+      kittyCsiBufferRef.current = assembled.buffer;
+      if (assembled.buffer.length > 0 && assembled.completed === null) {
+        // Incomplete CSI — wait for more bytes, but never block nav/edit keys.
+        if (
+          key.upArrow ||
+          key.downArrow ||
+          key.return ||
+          key.tab ||
+          key.backspace ||
+          key.delete ||
+          key.escape ||
+          (key.ctrl && (input === "c" || input === "g" || input === "G"))
+        ) {
+          kittyCsiBufferRef.current = "";
+          effectiveInput = input;
+        } else {
+          return;
+        }
+      } else if (assembled.completed !== null) {
+        effectiveInput = assembled.completed;
+      }
+
+      // Ink sets key.escape for bare Esc; Kitty CSI-u Esc is handled via input.
+      const isDismiss = isSlashDismissKey(effectiveInput, key);
 
       if (current.confirm) {
-        if (input.toLowerCase() === "y") {
+        if (effectiveInput.toLowerCase() === "y") {
           current.confirm.resolve(true);
           setConfirm(null);
-        } else if (
-          input.toLowerCase() === "n" ||
+          return;
+        }
+        if (
+          effectiveInput.toLowerCase() === "n" ||
           isDismiss ||
           key.return ||
-          (key.ctrl && input === "c")
+          (key.ctrl && effectiveInput === "c")
         ) {
           current.confirm.resolve(false);
           setConfirm(null);
@@ -211,7 +256,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           return;
         }
         // Esc / Ctrl+G / Ctrl+C dismiss the overlay (Ctrl+C does not exit while open).
-        if (isDismiss || (key.ctrl && input === "c")) {
+        if (isDismiss || (key.ctrl && effectiveInput === "c")) {
           dismissSlash();
           return;
         }
@@ -237,24 +282,29 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         return;
       }
 
+      // Kitty CSI-u that Ink didn't decode (Esc already handled) — never type it.
+      if (isKittyCsiUInput(effectiveInput)) {
+        return;
+      }
+
       if (key.backspace || key.delete) {
         setValue((text) => text.slice(0, -1));
         return;
       }
 
-      if (key.ctrl && input === "c") {
+      if (key.ctrl && effectiveInput === "c") {
         exit();
         return;
       }
 
       if (
-        input &&
+        effectiveInput &&
         !key.ctrl &&
-        input !== "\u001b" &&
-        input !== "\x1b"
+        effectiveInput !== "\u001b" &&
+        effectiveInput !== "\x1b"
       ) {
         // Note: do not gate on key.meta — Ink marks Escape as meta=true.
-        setValue((text) => `${text}${input}`);
+        setValue((text) => `${text}${effectiveInput}`);
       }
     },
     [applySlashItem, dismissSlash, exit, submit]
@@ -291,10 +341,11 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         {confirm ? (
           <Text color="yellow">{confirm.prompt}</Text>
         ) : (
-          <Text>
-            {value}
-            {busy ? "" : <Text inverse> </Text>}
-          </Text>
+          <>
+            {/* Sibling Text avoids Ink #867 nested-cursor wrap on 0→1 length. */}
+            <Text>{value}</Text>
+            {busy ? null : <Text inverse> </Text>}
+          </>
         )}
       </Box>
     </Box>
