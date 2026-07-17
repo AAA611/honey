@@ -55,6 +55,34 @@ function logKeyDebug(line: string): void {
     // ignore logging failures
   }
 }
+
+function isUndecodedSlashDismissInput(
+  input: string,
+  key: {
+    ctrl: boolean;
+    upArrow: boolean;
+    downArrow: boolean;
+    leftArrow?: boolean;
+    rightArrow?: boolean;
+    return: boolean;
+    tab: boolean;
+    backspace: boolean;
+    delete: boolean;
+  }
+): boolean {
+  return (
+    input === "" &&
+    !key.ctrl &&
+    !key.upArrow &&
+    !key.downArrow &&
+    !key.leftArrow &&
+    !key.rightArrow &&
+    !key.return &&
+    !key.tab &&
+    !key.backspace &&
+    !key.delete
+  );
+}
 export type SessionTuiProps = {
   runtime: HarnessRuntime;
   session: HarnessSession;
@@ -131,9 +159,12 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
 
   useEffect(() => () => clearKittyCsiTimer(), [clearKittyCsiTimer]);
 
-  const dismissSlash = useCallback(() => {
+  const dismissSlash = useCallback((wasOpen = stateRef.current.slashOpen) => {
     clearKittyCsiTimer();
     kittyCsiBufferRef.current = "";
+    if (wasOpen) {
+      logKeyDebug(JSON.stringify({ t: Date.now(), event: "slash-dismiss" }));
+    }
     setValue("");
     setSelectedIndex(0);
   }, [clearKittyCsiTimer]);
@@ -218,6 +249,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       ctrl: boolean;
       upArrow: boolean;
       downArrow: boolean;
+      leftArrow?: boolean;
+      rightArrow?: boolean;
       return: boolean;
       tab: boolean;
       backspace: boolean;
@@ -235,7 +268,13 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           ctrl: key.ctrl,
           meta: key.meta,
           up: key.upArrow,
-          down: key.downArrow
+          down: key.downArrow,
+          left: key.leftArrow,
+          right: key.rightArrow,
+          return: key.return,
+          tab: key.tab,
+          backspace: key.backspace,
+          delete: key.delete
         })
       );
 
@@ -337,7 +376,11 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           return;
         }
         // Esc / Ctrl+G / Ctrl+C dismiss the overlay (Ctrl+C does not exit while open).
-        if (isDismiss || (key.ctrl && effectiveInput === "c")) {
+        if (
+          isDismiss ||
+          isUndecodedSlashDismissInput(effectiveInput, key) ||
+          (key.ctrl && effectiveInput === "c")
+        ) {
           dismissSlash();
           return;
         }
