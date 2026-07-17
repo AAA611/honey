@@ -17,7 +17,7 @@
     "test": "vitest run",
     "eval": "node --enable-source-maps dist/evals/runEval.js",
     "start": "node --enable-source-maps dist/cli.js",
-    "start:deepseek": "node --enable-source-maps dist/cli.js --provider deepseek --dump-prompts --dump-prompts-dir /tmp/honey-dumps",
+    "start:deepseek": "node --enable-source-maps dist/cli.js --provider deepseek --dump-prompts",
     "demo": "node --enable-source-maps dist/cli.js \"read: CONTEXT.md\""
   },
   "engines": {

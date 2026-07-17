@@ -6,13 +6,23 @@ import type {
 } from "../types.js";
 import { estimateAssembledTokens } from "./assemble.js";
 
+/** 工具结果超过这个长度才考虑清空/裁短；短结果留着划不来。 */
 const MAX_TOOL_RESULT_CHARS = 800;
+
+/**
+ * 「可再读」的工具：结果丢掉也没关系，模型需要时可以再调一次。
+ * 优先拿它们腾预算，而不是先砍对话。
+ */
 const REFETCHABLE_TOOLS = new Set([
   "read_file",
   "search_workspace",
   "run_tests"
 ]);
 
+/**
+ * 默认的 Summary 写法：不调模型，把被挤出的消息压成一行短摘要。
+ * 以后可以换成「再开一轮模型写 Summary」，接口仍是同一个 SummaryWriter。
+ */
 export const deterministicSummaryWriter: SummaryWriter = {
   write(messages: ConversationMessage[]): string {
     return messages
@@ -26,6 +36,34 @@ export const deterministicSummaryWriter: SummaryWriter = {
   }
 };
 
+/**
+ * 组装 prompt 前的「减压阀」：超预算才动手，否则原样返回。
+ *
+ * ## 为什么要 compact？
+ *
+ * Assembled prompt 有 token 上限。对话和工具结果越积越多，迟早塞不下。
+ * Compaction 由 Harness 管，不把整段聊天原样扔给 Provider，也不靠简单截断：
+ * 先腾可再取的大块，再把更早的历史压进 Summary（Summary 在 Root set 里，
+ * 每轮还会带上；Working set 只留最近几条）。
+ *
+ * ## 原理（两级，能停就停）
+ *
+ * 1. **估 token**：用本地启发式估整份 Assembled prompt；≤ 预算 → 什么都不做。
+ * 2. **清/缩工具结果**：对可再读工具（读文件、搜仓库、跑测试）的大结果做
+ *    清空占位；其它工具结果则裁短。再估一次；够了就返回。
+ * 3. **仍超预算 → 摘要溢出**：从 Working set 头部切出更早的消息，写成 Summary
+ *    追加进去，直到落回预算（或没法再安全切分）。必要时再把残留的大工具
+ *    结果压到更短。
+ *
+ * Root set（Task、Plan、Pinned、已有 Summary 等）不会被这一步删掉；
+ * 动的主要是 Working set 里的大块和「变成 Summary 的旧对话」。
+ *
+ * @param layers - 当前上下文分层（会先浅拷贝再改，不原地突变入参）。
+ * @param plan - 当前 Plan；估 token 时要算进 Assembled prompt。
+ * @param tokenBudget - 本会话允许的 Assembled prompt 上限。
+ * @param summaryWriter - 把挤出的消息写成 Summary 的策略；默认确定性短摘要。
+ * @returns 可能已减压的新 ContextLayers（含 compaction 状态标记）。
+ */
 export function compactIfNeeded(
   layers: ContextLayers,
   plan: Plan | null,
@@ -40,10 +78,12 @@ export function compactIfNeeded(
     compaction: { ...layers.compaction }
   };
 
+  // 没超预算：减压没必要
   if (estimateAssembledTokens(next, plan) <= tokenBudget) {
     return next;
   }
 
+  // 第一刀：腾可再读的工具结果（丢了还能再调工具拿回来）
   next = clearRefetchableToolResults(next);
   next.compaction = { ...next.compaction, clearedTools: true };
 
@@ -51,9 +91,16 @@ export function compactIfNeeded(
     return next;
   }
 
+  // 第二刀：仍超 → 把 Working set 头部压进 Summary
   return summarizeOverflow(next, plan, tokenBudget, summaryWriter);
 }
 
+/**
+ * 在 Working set 里给工具结果「瘦身」。
+ *
+ * - 可再读工具 + 内容很长：换成简短占位，提示模型需要时再读。
+ * - 其它工具：不能假设能重跑，只截断到 {@link MAX_TOOL_RESULT_CHARS}。
+ */
 function clearRefetchableToolResults(layers: ContextLayers): ContextLayers {
   const workingSet = layers.workingSet.map((message) => {
     if (message.role !== "tool") {
@@ -74,6 +121,7 @@ function clearRefetchableToolResults(layers: ContextLayers): ContextLayers {
   return { ...layers, workingSet };
 }
 
+/** 不可再读的工具结果：只做硬截断，保留前缀信息。 */
 function shrinkToolContent(message: ConversationMessage): ConversationMessage {
   if (message.role !== "tool") {
     return message;
@@ -87,6 +135,13 @@ function shrinkToolContent(message: ConversationMessage): ConversationMessage {
   };
 }
 
+/**
+ * 把 Working set 里更早的对话「搬走」写成 Summary，直到估 token 落回预算。
+ *
+ * 切分要成对安全：留下的 Working set 不能以孤立的 tool 结果开头
+ *（否则模型看到结果却看不到对应的调用）。实在切不动时，再把残留的大
+ * tool 内容压到更短作为最后手段。
+ */
 function summarizeOverflow(
   layers: ContextLayers,
   plan: Plan | null,
@@ -109,6 +164,7 @@ function summarizeOverflow(
     summary.push(summaryWriter.write(overflow));
   }
 
+  // 对话已尽量收束仍超预算：再砍残留的大工具输出
   while (
     estimateAssembledTokens({ ...layers, workingSet, summary }, plan) >
       tokenBudget &&
@@ -135,7 +191,10 @@ function summarizeOverflow(
   };
 }
 
-/** Prefer a split that leaves Working set starting on user/assistant, never an orphan tool result. */
+/**
+ * 找一个安全的切点：切走前面一段后，剩下的 Working set 以 user/assistant 开头，
+ * 绝不以孤立的 tool 结果开头（tool 必须跟在产生它的那轮对话后面）。
+ */
 function findPairSafeSplit(workingSet: ConversationMessage[]): number {
   if (workingSet.length <= 2) {
     return 0;
@@ -152,6 +211,7 @@ function findPairSafeSplit(workingSet: ConversationMessage[]): number {
   return 0;
 }
 
+/** 超长文本裁到上限，末尾加 `...`。 */
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value;
