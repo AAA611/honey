@@ -18,6 +18,7 @@ import {
 } from "./runtime/harness.js";
 import { formatSessionBanner } from "./sessionBanner.js";
 import { createDefaultTools } from "./tools/defaultTools.js";
+import { runSessionTui } from "./tui/runTui.js";
 import type { Provider } from "./types.js";
 
 async function main() {
@@ -44,10 +45,24 @@ async function main() {
   }
 
   const runtime = createRuntime(cli, "repl");
-  await runRepl(runtime);
+  if (stdin.isTTY === true && stdout.isTTY === true) {
+    await runTuiRepl(runtime);
+  } else {
+    await runLineRepl(runtime);
+  }
 }
 
-async function runRepl(runtime: HarnessRuntime) {
+async function runTuiRepl(runtime: HarnessRuntime) {
+  const session = createHarnessSession(runtime);
+  announceSessionEventLog(session);
+  try {
+    await runSessionTui({ runtime, session });
+  } finally {
+    session.end();
+  }
+}
+
+async function runLineRepl(runtime: HarnessRuntime) {
   const session = createHarnessSession(runtime);
   announceSessionEventLog(session);
   const rl = createInterface({
@@ -83,38 +98,28 @@ async function runRepl(runtime: HarnessRuntime) {
         continue;
       }
 
-      if (line === "exit" || line === "quit") {
+      if (line === "exit" || line === "quit" || line === "/exit") {
         stdout.write("Bye.\n");
         break;
       }
 
-      if (line === "clear") {
+      if (line === "clear" || line === "/clear") {
         session.clear();
         stdout.write("\x1Bc");
         writeSessionBanner();
         continue;
       }
 
-      if (line === "context") {
+      if (line === "context" || line === "/context") {
         stdout.write(session.formatContextInventory());
         continue;
       }
 
       if (isSkillPickerCommand(line)) {
-        const skills = runtime.skillRegistry.list();
-        const isTTY = stdin.isTTY === true;
-        let picked;
-        if (isTTY) {
-          rl.pause();
-          try {
-            picked = await pickSkill({ skills, isTTY: true });
-          } finally {
-            rl.resume();
-          }
-        } else {
-          picked = await pickSkill({ skills, isTTY: false });
-        }
-
+        const picked = await pickSkill({
+          skills: runtime.skillRegistry.list(),
+          isTTY: false
+        });
         if (picked.status === "empty") {
           stdout.write("No skills discovered.\n");
           continue;

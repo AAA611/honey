@@ -5,12 +5,12 @@ export type SessionBannerOptions = {
 };
 
 const USAGE_LINE =
-  "Type a prompt, / or /skills to pick a Skill, or exit to quit.";
+  "Type a prompt, `/` for Skills/commands (TUI), or exit to quit.";
 const AMBER = "\u001b[38;5;214m";
 const RESET = "\u001b[0m";
 
 // FIGlet "isometric3" — tall decorative wordmark for Session entry.
-const WORDMARK = [
+const WORDMARK_LINES = [
   "      ___           ___           ___           ___                 ",
   "     /__/\\         /  /\\         /__/\\         /  /\\          ___   ",
   "     \\  \\:\\       /  /::\\        \\  \\:\\       /  /:/_        /__/|  ",
@@ -22,23 +22,37 @@ const WORDMARK = [
   "   \\  \\:\\        \\  \\:\\/:/     \\  \\:\\        \\  \\:\\/:/        \\  \\:\\",
   "    \\  \\:\\        \\  \\::/       \\  \\:\\        \\  \\::/          \\__\\/",
   "     \\__\\/         \\__\\/         \\__\\/         \\__\\/                "
-].join("\n");
+];
 
-const WORDMARK_WIDTH = Math.max(
-  ...WORDMARK.split("\n").map((line) => line.length)
-);
+const WORDMARK = WORDMARK_LINES.join("\n");
+
+const WORDMARK_WIDTH = Math.max(...WORDMARK_LINES.map((line) => line.length));
+
+export function getSessionBannerContent(options: {
+  columns?: number;
+}): { wordmarkLines: string[]; usageLine: string; compact: boolean } {
+  const columns = options.columns ?? WORDMARK_WIDTH;
+  const compact = columns < WORDMARK_WIDTH;
+  return {
+    wordmarkLines: compact ? ["HONEY"] : [...WORDMARK_LINES],
+    usageLine: USAGE_LINE,
+    compact
+  };
+}
 
 export function formatSessionBanner(options: SessionBannerOptions): string {
   if (!options.isTTY) {
     return "";
   }
 
-  const columns = options.columns ?? WORDMARK_WIDTH;
-  let wordmark = columns < WORDMARK_WIDTH ? "HONEY" : WORDMARK;
+  const { wordmarkLines, usageLine } = getSessionBannerContent({
+    columns: options.columns
+  });
+  let wordmark = wordmarkLines.join("\n");
 
   if (!options.noColor) {
     wordmark = `${AMBER}${wordmark}${RESET}`;
   }
 
-  return `${wordmark}\n${USAGE_LINE}\n`;
+  return `${wordmark}\n${usageLine}\n`;
 }

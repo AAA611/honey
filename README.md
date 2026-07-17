@@ -1,48 +1,70 @@
+中文 | [English](README.en.md)
+
+<p align="center">
+  <img src="docs/assets/honey-banner.svg" alt="HONEY" width="100%" />
+</p>
+
+<p align="center">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" />
+  <img alt="Node.js >=18.18" src="https://img.shields.io/badge/Node.js-%3E%3D18.18-339933?logo=nodedotjs&logoColor=white" />
+  <img alt="Vitest" src="https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=white" />
+  <img alt="version 0.1.0" src="https://img.shields.io/badge/version-0.1.0-0B6E4F" />
+</p>
+
+<p align="center">
+  <img alt="Harness" src="https://img.shields.io/badge/Harness-FFAF00" />
+  <img alt="Skills" src="https://img.shields.io/badge/Skills-E67E22" />
+  <img alt="REPL" src="https://img.shields.io/badge/REPL-2E86AB" />
+  <img alt="Patch-first" src="https://img.shields.io/badge/Patch--first-27AE60" />
+  <img alt="Session Log" src="https://img.shields.io/badge/Session%20Log-8E44AD" />
+</p>
+
 # Honey
 
-**A local TypeScript harness for learning how Codex or Claude Code style agents are built.**
+**一个本地 TypeScript Harness，用来学习 Codex / Claude Code 风格的 agent runtime 是怎么搭出来的。**
 
-Honey is a small, inspectable agent runtime for studying the core loop behind modern coding agents:
+Honey 是一个小而可检视的 agent 运行时，用来研究现代 coding agent 背后的核心循环：
 
-- explicit state transitions
-- structured JSON tool calls
-- patch-first editing
-- guarded vs safe tool execution
-- layered context and summarization
-- lightweight planning
-- structured event logging
-- eval fixtures and runtime tests
+- 显式状态迁移
+- 结构化 JSON tool call
+- patch-first 编辑
+- guarded vs safe 的 Tool 执行边界
+- 分层 context 与 summarization
+- 轻量 Plan
+- 结构化事件日志
+- eval fixture 与 runtime 测试
+- Skill 包发现、目录注入与脚本执行
 
-It is intentionally narrow. Honey is not trying to be a full hosted agent platform yet. The goal is to make the harness itself easy to read, run, modify, and extend.
-
----
-
-## Why Honey
-
-Most agent projects either:
-
-- hide the runtime inside a large product surface, or
-- stop at a toy ReAct demo with no real control boundaries
-
-Honey aims at the middle:
-
-- **Small enough to understand** in one sitting
-- **Real enough to study** the actual harness problems
-- **Structured enough to extend** toward a production-style agent runtime
-
-If you want to understand where the seams are between provider, runtime, tools, context, and policy, this repo is meant to be that starting point.
+它故意保持狭窄。Honey 目前不追求做成完整的托管 agent 平台；目标是让 Harness 本身容易阅读、运行、修改和扩展。
 
 ---
 
-## Current Capabilities
+## 为什么是 Honey
+
+多数 agent 项目要么：
+
+- 把 runtime 藏在庞大的产品表面之下，要么
+- 停在没有真实控制边界的玩具 ReAct demo
+
+Honey 瞄准中间地带：
+
+- **小到一次能读懂**
+- **真到能学到实际 Harness 问题**
+- **结构清楚，能往生产向 runtime 延展**
+
+如果你想看清 Provider、Runtime、Tools、Context 与 policy 之间的接缝，这个仓库就是那个起点。
+
+---
+
+## 当前能力
 
 ### Runtime
 
-- Explicit state machine: `USER_INPUT -> MODEL_TURN -> TOOL_DISPATCH -> TOOL_RESULT -> DONE/ERROR`
-- Provider abstraction with normalized tool-call responses
-- Lightweight task plan with status tracking
-- Structured event logging for run and turn inspection
-- Session event log: default-on JSONL timeline under `.honey/session-logs/` (disable with `--no-session-event-log`; override dir with `--session-event-log-dir` or `HONEY_SESSION_EVENT_LOG_DIR`)
+- 显式状态机：`USER_INPUT -> MODEL_TURN -> TOOL_DISPATCH -> TOOL_RESULT -> DONE/ERROR`
+- Provider 抽象，规范化 tool-call 响应
+- 轻量 Plan，带步骤状态跟踪
+- 结构化事件日志，便于 Run / Turn 检视
+- Session event log：默认开启的 JSONL 时间线，写在 `.honey/session-logs/`（可用 `--no-session-event-log` 关闭；用 `--session-event-log-dir` 或 `HONEY_SESSION_EVENT_LOG_DIR` 覆盖目录）
 
 ### Tools
 
@@ -51,59 +73,75 @@ If you want to understand where the seams are between provider, runtime, tools, 
 - `exec_command`
 - `apply_patch`
 - `run_tests`
+- `run_skill_script`
+
+### Skills
+
+- Skill 文件系统包（`SKILL.md` + 可选 scripts / references）
+- Skill catalog 注入 Assembled prompt 的 Root set
+- 显式 `$name` 注入与按需 `read_file` 加载
+- REPL Skill picker / slash overlay（`/` 或 `/skills`）
+- Plugin 在 v1 仅作分发占位（见 `src/plugins/types.ts`）
 
 ### Guardrails
 
-- Safe vs guarded tool classification
-- Guarded tool execution can be disabled at runtime
-- Patch-first editing model
+- Safe vs guarded Tool 分类
+- 运行时可关闭 guarded Tool 执行
+- Patch-first 编辑模型
+- Skill 脚本按 Skill scope 审批（bundled / repo / user）
 
 ### Context
 
-- Stable system instructions
-- Current task layer
-- Active working set
-- Rolling summary for trimmed history
+- 稳定 system instructions
+- 当前 Task 层
+- 活跃 Working set
+- 历史压缩后的 Summary
+
+### Session UX
+
+- Command mode：`honey "<prompt>"` 一次性执行
+- REPL mode：TTY 下使用 Session TUI（Transcript + Composer + slash Overlay）
+- Session banner：Session 入口的品牌欢迎面
 
 ### Testing
 
 - TypeScript typecheck
-- Runtime tests with `vitest`
-- Eval entrypoint for a minimal end-to-end harness run
+- 基于 `vitest` 的 runtime 测试
+- 最小端到端 Harness eval 入口
 
 ---
 
-## What It Is Not
+## 它现在不是什么
 
-Honey does **not** currently ship:
+Honey **当前不提供**：
 
-- multi-agent orchestration
-- hosted services
-- browser automation
-- long-term memory
-- advanced approval workflows
-- TUI or desktop UX
+- 多 agent 编排
+- 托管服务
+- 浏览器自动化
+- 长期记忆系统
+- 完整审批工作流产品
+- 桌面端 / 完整 IDE UX（Session TUI 仅覆盖 REPL 交互壳）
 
-Default CLI runs still use a **scripted provider** so demos and tests do not depend on an external API. An optional OpenAI-compatible Provider (DeepSeek preset) can be selected explicitly when you want a live model Turn.
+默认 CLI 仍使用 **scripted Provider**，演示与测试不依赖外部 API。需要真实模型 Turn 时，可显式选择 OpenAI-compatible Provider（DeepSeek preset）。
 
 ---
 
-## Quick Start
+## 快速开始
 
-### Requirements
+### 要求
 
 - Node.js `>= 18.18`
 - npm
 
-### Install
+### 安装依赖
 
 ```bash
 npm install
 ```
 
-### Local terminal install
+### 本地终端安装
 
-Primary local-dev path:
+主开发路径：
 
 ```bash
 npm install
@@ -112,7 +150,7 @@ npm link
 honey
 ```
 
-Packaged install validation path:
+打包校验路径：
 
 ```bash
 npm install
@@ -122,7 +160,7 @@ npm install -g ./honey-0.1.0.tgz
 honey
 ```
 
-### Validate the project
+### 校验项目
 
 ```bash
 npm run typecheck
@@ -130,20 +168,20 @@ npm test
 npm run build
 ```
 
-### Run the demo CLI
+### 运行 demo CLI
 
 ```bash
 npm start
 ```
 
-Or pass a prompt directly:
+或直接传 prompt：
 
 ```bash
 node dist/cli.js "read: CONTEXT.md"
 node dist/cli.js "search: Harness"
 ```
 
-### Run the eval entrypoint
+### 运行 eval 入口
 
 ```bash
 npm run eval
@@ -151,82 +189,88 @@ npm run eval
 
 ---
 
-## CLI Behavior Right Now
+## 当前 CLI 行为
 
-Default: scripted Provider.
+默认：scripted Provider。
 
-Supported scripted demo prompt patterns:
+支持的 scripted demo prompt 模式：
 
 - `read: <path>`
 - `search: <query>`
 
-Example:
+示例：
 
 ```bash
 npm run build
 node dist/cli.js "read: CONTEXT.md"
 ```
 
-Optional live DeepSeek preset (OpenAI Chat Completions–compatible; requires an API key). This is a **manual smoke** path — automated tests use a fake HTTP transport and do **not** call DeepSeek in CI:
+可选的 live DeepSeek preset（OpenAI Chat Completions 兼容；需要 API key）。这是**手动 smoke**路径——自动化测试使用假 HTTP transport，**不会**在 CI 里调用 DeepSeek：
 
 ```bash
 export DEEPSEEK_API_KEY=...
 honey --provider deepseek --allow-guarded-tools "read CONTEXT.md and summarize"
 ```
 
-Overrides: `--model`, `--base-url`, or env `HONEY_MODEL` / `HONEY_BASE_URL`. Key fallback: `HONEY_API_KEY`. Guarded Tools stay off unless `--allow-guarded-tools` is set. Live calls are opt-in via `--provider deepseek`; missing credentials fail loudly.
+覆盖项：`--model`、`--base-url`，或环境变量 `HONEY_MODEL` / `HONEY_BASE_URL`。Key 回退：`HONEY_API_KEY`。除非设置 `--allow-guarded-tools`，否则 guarded Tools 保持关闭。Live 调用需显式 `--provider deepseek`；缺凭证会直接失败。
 
-That path exercises the real harness runtime:
+这条路径会跑通真实 Harness runtime：
 
-1. user input enters the runtime
-2. provider returns a structured tool call
-3. tool executes
-4. tool result is injected back into the conversation
-5. runtime exits cleanly with a final assistant response
+1. 用户输入进入 runtime
+2. Provider 返回结构化 tool call
+3. Tool 执行
+4. Tool 结果写回对话
+5. runtime 干净退出并给出最终 assistant 响应
 
 ---
 
-## Project Structure
+## 项目结构
 
 ```text
 src/
-  cli.ts                 # local CLI entrypoint
-  types.ts               # shared runtime and provider types
-  context/               # layered context and summarization
-  evals/                 # minimal eval entrypoint
-  logging/               # structured event logging
-  planning/              # lightweight plan state
-  providers/             # provider abstractions and scripted provider
-  runtime/               # harness state machine
-  tools/                 # tool definitions, registry, and session manager
+  cli.ts                 # 本地 CLI 入口
+  cli/                   # CLI 辅助（如 Skill picker 降级路径）
+  types.ts               # 共享 runtime / Provider 类型
+  context/               # 分层 context 与 summarization
+  evals/                 # 最小 eval 入口
+  logging/               # 结构化事件日志
+  planning/              # 轻量 Plan 状态
+  plugins/               # Plugin 分发占位类型
+  providers/             # Provider 抽象与 scripted Provider
+  runtime/               # Harness 状态机
+  skills/                # Skill 发现、解析、catalog、bundled Skills
+  tools/                 # Tool 定义、registry、session manager
+  tui/                   # Session TUI（Ink + React）
 ```
 
-Other important files:
+其他重要文件：
 
-- `specs/harness-v0-spec.md` — the V0 product and architecture spec
-- `CONTEXT.md` — project glossary and domain vocabulary
-- `AGENTS.md` — local agent workflow setup
-
----
-
-## Architecture Overview
-
-Honey is split around the same boundaries that matter in larger agent systems:
-
-- **Provider** decides how model responses are normalized
-- **Runtime** owns the state machine and turn loop
-- **Tools** define what the agent can do in the environment
-- **Context** controls what the model sees each turn
-- **Planning** keeps task state out of raw transcript memory
-- **Logging** captures a replay-friendly event stream
-
-This separation is the point of the project.
+- `specs/harness-v0-spec.md` — V0 产品与架构规格
+- `CONTEXT.md` — 项目 glossary 与领域词汇
+- `AGENTS.md` — 本地 agent 工作流约定
+- `docs/adr/` — 架构决策记录
 
 ---
 
-## Development
+## 架构概览
 
-### Main scripts
+Honey 按大型 agent 系统同样关键的边界切开：
+
+- **Provider** 负责把模型响应规范化
+- **Runtime** 拥有状态机与 turn loop
+- **Tools** 定义 agent 对环境能做什么
+- **Skills** 提供可复用任务包（指令 + 可选脚本），与 Tool 不同
+- **Context** 控制每轮模型看到什么
+- **Planning** 把任务状态留在 Transcript 之外
+- **Logging** 捕获可回放的事件流
+
+这种分离本身就是这个项目的重点。
+
+---
+
+## 开发
+
+### 主要脚本
 
 ```bash
 npm run typecheck
@@ -236,7 +280,7 @@ npm run eval
 npm start
 ```
 
-### Typical workflow
+### 典型工作流
 
 ```bash
 npm install
@@ -250,26 +294,27 @@ npm run eval
 
 ## Roadmap
 
-Planned next steps for the harness:
+Harness 下一步计划：
 
-- richer guarded approval flows
-- stronger patch formats and edit validation
-- higher-signal eval fixtures
-- better session inspection and streaming UX
-- optional `--provider openai-compatible` CLI sugar on top of the existing adapter
+- 更丰富的 guarded 审批流
+- 更强的 patch 格式与编辑校验
+- 更高信号的 eval fixture
+- 更好的 Session 检视与 streaming UX
+- 在现有 adapter 之上提供可选的 `--provider openai-compatible` CLI 糖
+- Plugin 安装与 MCP bundling（超出 v1 Skill 核心环）
 
 ---
 
-## Design Principles
+## 设计原则
 
-- **Prefer explicit runtime control over prompt magic**
-- **Keep tool interfaces structured**
-- **Treat safety policy as code, not wording**
-- **Use the smallest architecture that still teaches the right lesson**
-- **Do not fake capabilities that the runtime does not yet have**
+- **显式 runtime 控制优先于 prompt 魔法**
+- **保持 Tool 接口结构化**
+- **把安全策略写成代码，而不是措辞**
+- **用仍能教对课的最小架构**
+- **runtime 还没有的能力，不要假装有**
 
 ---
 
 ## License
 
-No license file has been added yet.
+尚未添加 license 文件。

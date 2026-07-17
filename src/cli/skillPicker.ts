@@ -1,5 +1,3 @@
-import { select } from "@inquirer/prompts";
-import type { Interface as ReadlineInterface } from "node:readline/promises";
 import type { SkillManifest } from "../skills/types.js";
 
 export type SkillPickerResult =
@@ -21,9 +19,7 @@ export function formatSkillChoiceLabel(skill: SkillManifest): string {
 }
 
 /**
- * Interactive Skill picker for REPL. TTY uses arrow-key select;
- * non-TTY prints the catalog and asks the user to type `$name` next
- * (avoids a second readline question on piped stdin).
+ * Non-TTY Skill listing. TTY REPL uses the Session TUI slash overlay instead.
  */
 export async function pickSkill(input: {
   skills: SkillManifest[];
@@ -33,30 +29,8 @@ export async function pickSkill(input: {
     return { status: "empty" };
   }
 
-  if (input.isTTY) {
-    return pickSkillInteractive(input.skills);
-  }
-
+  // TTY path is handled by Session TUI; keep a safe fallback list here.
   return pickSkillNonTty(input.skills);
-}
-
-async function pickSkillInteractive(
-  skills: SkillManifest[]
-): Promise<SkillPickerResult> {
-  try {
-    const skillName = await select({
-      message: "Select a Skill",
-      choices: skills.map((skill) => ({
-        name: formatSkillChoiceLabel(skill),
-        value: skill.name,
-        description: skill.skillFilePath
-      }))
-    });
-    return { status: "selected", skillName };
-  } catch {
-    // Ctrl+C / Esc via ExitPromptError
-    return { status: "cancelled" };
-  }
 }
 
 function pickSkillNonTty(skills: SkillManifest[]): SkillPickerResult {
@@ -66,14 +40,16 @@ function pickSkillNonTty(skills: SkillManifest[]): SkillPickerResult {
   skills.forEach((skill, index) => {
     lines.push(`  ${index + 1}. ${formatSkillChoiceLabel(skill)}`);
   });
-  // Prefer stderr so piped/spawnSync stdin+stdout flows keep working after a large list.
   process.stderr.write(`${lines.join("\n")}\n`);
   return { status: "cancelled" };
 }
 
 /** Prefill the next readline question with `$skillName `. */
 export async function questionWithSkillPrefill(
-  rl: ReadlineInterface,
+  rl: {
+    question: (prompt: string) => Promise<string>;
+    write: (text: string) => void;
+  },
   prompt: string,
   skillName: string
 ): Promise<string> {

@@ -8,6 +8,7 @@ Users need a discovery surface for Skills beyond remembering `$name`. We add a R
 - Non-TTY: print the Skill list and prompt the user to type `$name` on the next line (no second readline question — piped stdin + multi-question readline is unreliable under spawn/tests).
 - Selection prefills `$skill-name ` into the next prompt so existing explicit `$` injection applies.
 - Cancel / empty list return to the prompt without starting a Run.
+- **Superseded on TTY by ADR-0007**: the Session TUI `/` overlay replaces the Enter-then-inquirer Skill picker for interactive terminals.
 
 ## Considered Options
 

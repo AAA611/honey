@@ -36,14 +36,18 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **REPL mode**: the interactive terminal mode entered by running `honey` with no prompt argument, using single-line input and repeated turns.
 - **Command mode**: the one-shot CLI mode entered by running `honey "<prompt>"`, executing a single request and exiting.
 - **Bin entrypoint**: the packaged executable command exposed as `honey` through npm's `bin` field.
-- **Session banner**: the branded welcome surface of a Session (ASCII wordmark plus a short usage line), shown on Session entry and after `clear`, and never in Command mode.
+- **Session banner**: the branded welcome surface of a Session (ASCII wordmark plus a short usage line), shown on Session entry and after `clear` in line REPL, and at the top of the Session TUI; never in Command mode.
   _Avoid_: splash screen, startup logo, welcome message
 - **Skill**: a reusable task-specific package (instructions plus optional scripts or references) that the Harness may activate for a Task; distinct from Tool (callable capability) and from Project instructions (always-on repo guidance).
   _Avoid_: Tool, Project instructions, prompt template, system prompt fragment (as the name of this package)
 - **Skill catalog**: the compact discovery index of available Skills (name, description, path, and optional resource pointers) injected each Turn so the model can see what exists without loading Skill bodies.
   _Avoid_: full Skill body dump, Project instructions
-- **Skill picker**: the REPL-only interactive surface opened by `/` or `/skills` to choose one Skill and prefill an explicit `$name` mention; not part of the Assembled prompt. On a TTY it uses arrow-key selection; on non-TTY it lists Skills and directs the user to type `$name`.
-  _Avoid_: Skill catalog, slash command palette (as a full product feature in v1)
+- **Skill picker**: the interactive surface for choosing a Skill (and in the Session TUI, also built-in slash commands). On a TTY this is the `/` overlay in the Session TUI; on non-TTY it lists Skills and directs the user to type `$name`.
+  _Avoid_: Skill catalog, full plugin marketplace UI
+- **Session TUI**: the Ink-based REPL shell that shows Session banner, Transcript, Status, Composer, and the slash Overlay together; distinct from Command mode and from non-TTY line input.
+  _Avoid_: Harness UI, web UI
+- **Composer**: the Session TUI keystroke-level input box where the user edits the next message and triggers `/` filtering.
+  _Avoid_: readline prompt, chat input (as a product name)
 - **Skill scope**: the discovery origin of a Skill — repo, user, or bundled — used for precedence and script-approval policy.
   _Avoid_: Plugin scope, Tool risk (as a substitute name for origin)
 - **Plugin**: an installable distribution unit that packages one or more Skills (and later may bundle connectors); not itself a layer in the Assembled prompt.

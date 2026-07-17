@@ -1,5 +1,4 @@
 import { readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
 
 const distRoot = new URL("../dist/", import.meta.url);
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatSessionBanner } from "./sessionBanner.js";
 
 const USAGE =
-  "Type a prompt, / or /skills to pick a Skill, or exit to quit.";
+  "Type a prompt, `/` for Skills/commands (TUI), or exit to quit.";
 
 describe("Session banner seam", () => {
   it("returns empty output when stdout is not a TTY", () => {
