@@ -2,11 +2,14 @@
 
 import { createInterface } from "node:readline/promises";
 import { cwd, env, stdin, stdout } from "node:process";
+import { resolve } from "node:path";
 import { createCliRuntime, parseCliArgs } from "./cliConfig.js";
+import { defaultDumpPromptsDir } from "./context/promptDump.js";
 import {
   createDefaultSystemPrompt,
   createHarnessSession,
-  HarnessRuntime
+  HarnessRuntime,
+  type HarnessSession
 } from "./runtime/harness.js";
 import { formatSessionBanner } from "./sessionBanner.js";
 import { createDefaultTools } from "./tools/defaultTools.js";
@@ -15,19 +18,33 @@ import type { Provider } from "./types.js";
 async function main() {
   const args = parseCliArgs(process.argv.slice(2));
   const cli = createCliRuntime(args, env);
-  const runtime = createRuntime(cli.provider, cli.allowGuardedTools);
+
+  if (cli.dumpPrompts) {
+    const dumpDir =
+      cli.dumpPromptsDir ?? defaultDumpPromptsDir(cwd());
+    stdout.write(`Prompt dumps enabled → ${resolve(dumpDir)}\n`);
+  }
 
   if (cli.prompt) {
-    const result = await runtime.run(cli.prompt);
-    stdout.write(`${result.output}\n`);
+    const runtime = createRuntime(cli, "command");
+    const session = createHarnessSession(runtime);
+    announceSessionEventLog(session);
+    try {
+      const result = await session.runTurn(cli.prompt);
+      stdout.write(`${result.output}\n`);
+    } finally {
+      session.end();
+    }
     return;
   }
 
+  const runtime = createRuntime(cli, "repl");
   await runRepl(runtime);
 }
 
 async function runRepl(runtime: HarnessRuntime) {
   const session = createHarnessSession(runtime);
+  announceSessionEventLog(session);
   const rl = createInterface({
     input: stdin,
     output: stdout
@@ -63,7 +80,14 @@ async function runRepl(runtime: HarnessRuntime) {
       stdout.write(`${result.output}\n`);
     }
   } finally {
+    session.end();
     rl.close();
+  }
+}
+
+function announceSessionEventLog(session: HarnessSession) {
+  if (session.sessionEventLogPath) {
+    stdout.write(`Session event log → ${session.sessionEventLogPath}\n`);
   }
 }
 
@@ -77,13 +101,32 @@ function writeSessionBanner() {
   );
 }
 
-function createRuntime(provider: Provider, allowGuardedTools: boolean) {
-  return new HarnessRuntime(provider, createDefaultTools(), {
+function createRuntime(
+  cli: {
+    provider: Provider;
+    allowGuardedTools: boolean;
+    dumpPrompts: boolean;
+    dumpPromptsDir?: string;
+    sessionEventLog: boolean;
+    sessionEventLogDir?: string;
+  },
+  sessionMode: "repl" | "command"
+) {
+  return new HarnessRuntime(cli.provider, createDefaultTools(), {
     cwd: cwd(),
     maxTurns: 4,
-    allowGuardedTools,
+    allowGuardedTools: cli.allowGuardedTools,
     systemPrompt: createDefaultSystemPrompt(),
-    tokenBudget: 24_000
+    tokenBudget: 24_000,
+    dumpPrompts: cli.dumpPrompts,
+    dumpPromptsDir: cli.dumpPromptsDir
+      ? resolve(cli.dumpPromptsDir)
+      : undefined,
+    sessionEventLog: cli.sessionEventLog,
+    sessionEventLogDir: cli.sessionEventLogDir
+      ? resolve(cli.sessionEventLogDir)
+      : undefined,
+    sessionMode
   });
 }
 

@@ -10,6 +10,10 @@ export type CliProviderName = "scripted" | "deepseek";
 export interface ParsedCliArgs {
   provider: CliProviderName;
   allowGuardedTools: boolean;
+  dumpPrompts: boolean;
+  dumpPromptsDir?: string;
+  sessionEventLog: boolean;
+  sessionEventLogDir?: string;
   model?: string;
   baseUrl?: string;
   prompt: string;
@@ -18,6 +22,10 @@ export interface ParsedCliArgs {
 export interface CliRuntimeConfig {
   provider: Provider;
   allowGuardedTools: boolean;
+  dumpPrompts: boolean;
+  dumpPromptsDir?: string;
+  sessionEventLog: boolean;
+  sessionEventLogDir?: string;
   model?: string;
   baseUrl?: string;
   prompt: string;
@@ -33,6 +41,10 @@ const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let provider: CliProviderName = "scripted";
   let allowGuardedTools = false;
+  let dumpPrompts = false;
+  let dumpPromptsDir: string | undefined;
+  let sessionEventLog = true;
+  let sessionEventLogDir: string | undefined;
   let model: string | undefined;
   let baseUrl: string | undefined;
   const promptParts: string[] = [];
@@ -61,6 +73,23 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       allowGuardedTools = true;
       continue;
     }
+    if (arg === "--dump-prompts") {
+      dumpPrompts = true;
+      continue;
+    }
+    if (arg === "--dump-prompts-dir") {
+      dumpPromptsDir = requireValue("--dump-prompts-dir", argv[++i]);
+      dumpPrompts = true;
+      continue;
+    }
+    if (arg === "--no-session-event-log") {
+      sessionEventLog = false;
+      continue;
+    }
+    if (arg === "--session-event-log-dir") {
+      sessionEventLogDir = requireValue("--session-event-log-dir", argv[++i]);
+      continue;
+    }
     if (arg.startsWith("-")) {
       throw new Error(`Unknown flag "${arg}".`);
     }
@@ -70,6 +99,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   return {
     provider,
     allowGuardedTools,
+    dumpPrompts,
+    dumpPromptsDir,
+    sessionEventLog,
+    sessionEventLogDir,
     model,
     baseUrl,
     prompt: promptParts.join(" ").trim()
@@ -81,10 +114,23 @@ export function createCliRuntime(
   env: NodeJS.ProcessEnv,
   options: CreateCliRuntimeOptions = {}
 ): CliRuntimeConfig {
+  const dumpPrompts =
+    args.dumpPrompts || isTruthyEnv(env.HONEY_DUMP_PROMPTS);
+  const dumpPromptsDir =
+    args.dumpPromptsDir ?? env.HONEY_DUMP_PROMPTS_DIR ?? undefined;
+  const sessionEventLog =
+    args.sessionEventLog && !isFalsyEnv(env.HONEY_SESSION_EVENT_LOG);
+  const sessionEventLogDir =
+    args.sessionEventLogDir ?? env.HONEY_SESSION_EVENT_LOG_DIR ?? undefined;
+
   if (args.provider === "scripted") {
     return {
       provider: new ScriptedProvider(),
       allowGuardedTools: args.allowGuardedTools,
+      dumpPrompts,
+      dumpPromptsDir,
+      sessionEventLog,
+      sessionEventLogDir,
       model: args.model,
       baseUrl: args.baseUrl,
       prompt: args.prompt
@@ -112,10 +158,30 @@ export function createCliRuntime(
       transport: options.transport
     }),
     allowGuardedTools: args.allowGuardedTools,
+    dumpPrompts,
+    dumpPromptsDir,
+    sessionEventLog,
+    sessionEventLogDir,
     model,
     baseUrl,
     prompt: args.prompt
   };
+}
+
+function isTruthyEnv(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function isFalsyEnv(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized === "0" || normalized === "false" || normalized === "no";
 }
 
 function requireValue(flag: string, value: string | undefined): string {

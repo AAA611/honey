@@ -9,6 +9,10 @@ describe("CLI config seam", () => {
     expect(args).toEqual({
       provider: "scripted",
       allowGuardedTools: false,
+      dumpPrompts: false,
+      dumpPromptsDir: undefined,
+      sessionEventLog: true,
+      sessionEventLogDir: undefined,
       model: undefined,
       baseUrl: undefined,
       prompt: ""
@@ -17,6 +21,53 @@ describe("CLI config seam", () => {
     const runtime = createCliRuntime(args, {});
     expect(runtime.provider).toBeInstanceOf(ScriptedProvider);
     expect(runtime.allowGuardedTools).toBe(false);
+    expect(runtime.dumpPrompts).toBe(false);
+    expect(runtime.sessionEventLog).toBe(true);
+  });
+
+  it("enables prompt dumps from flag or HONEY_DUMP_PROMPTS", () => {
+    const fromFlag = createCliRuntime(parseCliArgs(["--dump-prompts"]), {});
+    expect(fromFlag.dumpPrompts).toBe(true);
+
+    const fromDir = parseCliArgs(["--dump-prompts-dir", "/tmp/honey-dumps"]);
+    expect(fromDir.dumpPrompts).toBe(true);
+    expect(fromDir.dumpPromptsDir).toBe("/tmp/honey-dumps");
+
+    const fromEnv = createCliRuntime(parseCliArgs([]), {
+      HONEY_DUMP_PROMPTS: "1",
+      HONEY_DUMP_PROMPTS_DIR: "/tmp/from-env"
+    });
+    expect(fromEnv.dumpPrompts).toBe(true);
+    expect(fromEnv.dumpPromptsDir).toBe("/tmp/from-env");
+  });
+
+  it("defaults Session event log on and supports disable or directory override", () => {
+    const defaults = createCliRuntime(parseCliArgs([]), {});
+    expect(defaults.sessionEventLog).toBe(true);
+    expect(defaults.sessionEventLogDir).toBeUndefined();
+
+    const disabled = createCliRuntime(parseCliArgs(["--no-session-event-log"]), {});
+    expect(disabled.sessionEventLog).toBe(false);
+
+    const fromDir = parseCliArgs([
+      "--session-event-log-dir",
+      "/tmp/honey-session-logs"
+    ]);
+    expect(fromDir.sessionEventLog).toBe(true);
+    expect(fromDir.sessionEventLogDir).toBe("/tmp/honey-session-logs");
+
+    const fromEnv = createCliRuntime(parseCliArgs([]), {
+      HONEY_SESSION_EVENT_LOG: "0",
+      HONEY_SESSION_EVENT_LOG_DIR: "/tmp/from-env-logs"
+    });
+    expect(fromEnv.sessionEventLog).toBe(false);
+    expect(fromEnv.sessionEventLogDir).toBe("/tmp/from-env-logs");
+
+    const dirFromEnv = createCliRuntime(parseCliArgs([]), {
+      HONEY_SESSION_EVENT_LOG_DIR: "/tmp/only-dir"
+    });
+    expect(dirFromEnv.sessionEventLog).toBe(true);
+    expect(dirFromEnv.sessionEventLogDir).toBe("/tmp/only-dir");
   });
 
   it("selects DeepSeek preset with defaults and DEEPSEEK_API_KEY", () => {

@@ -12,10 +12,18 @@ import { appendWorkingMessages, createContextLayers } from "../context/layers.js
 import { autoPinFromUserInput } from "../context/pin.js";
 import { loadProjectInstructions } from "../context/projectInstructions.js";
 import {
+  defaultDumpPromptsDir,
+  dumpAssembledPrompt
+} from "../context/promptDump.js";
+import {
   decideTaskTransition,
   stripTaskSwitchPrefix
 } from "../context/taskTransition.js";
 import { EventLogger } from "../logging/eventLogger.js";
+import {
+  defaultSessionEventLogDir,
+  SessionEventLog
+} from "../logging/sessionEventLog.js";
 import { createInitialPlan, markPlanStep } from "../planning/plan.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type {
@@ -47,7 +55,11 @@ export class HarnessRuntime {
 
   async run(userInput: string): Promise<HarnessRunResult> {
     const session = createHarnessSession(this);
-    return session.runTurn(userInput);
+    try {
+      return await session.runTurn(userInput);
+    } finally {
+      session.end();
+    }
   }
 
   async executeTool(toolCall: ToolCall): Promise<ToolExecutionResult> {
@@ -91,6 +103,9 @@ export class HarnessSession {
   private plan: Plan | null = null;
   private readonly history: HarnessRunResult[] = [];
   private readonly assemblySnapshots: AssemblySnapshot[] = [];
+  readonly sessionId = randomUUID();
+  private dumpSequence = 0;
+  private readonly eventLog: SessionEventLog | null;
 
   constructor(private readonly runtime: HarnessRuntime) {
     this.context = createContextLayers({
@@ -98,10 +113,18 @@ export class HarnessSession {
       projectInstructions: loadProjectInstructions(this.runtime.config.cwd),
       environment: formatEnvironment(this.runtime.config)
     });
+    this.eventLog = createSessionEventLog(this.sessionId, this.runtime.config);
+  }
+
+  get sessionEventLogPath(): string | null {
+    return this.eventLog?.path ?? null;
   }
 
   async runTurn(userInput: string): Promise<HarnessRunResult> {
-    const logger = new EventLogger();
+    const logger = new EventLogger({
+      sessionId: this.sessionId,
+      onEmit: (event) => this.eventLog?.append(event)
+    });
     const turnId = randomUUID();
     let state: HarnessState = "USER_INPUT";
     let output = "";
@@ -162,11 +185,26 @@ export class HarnessSession {
       const assemblySnapshot = createAssemblySnapshot(this.context, this.plan);
       this.assemblySnapshots.push(assemblySnapshot);
 
+      let promptDumpPath: string | null = null;
+      if (this.runtime.config.dumpPrompts) {
+        this.dumpSequence += 1;
+        promptDumpPath = dumpAssembledPrompt({
+          directory:
+            this.runtime.config.dumpPromptsDir ??
+            defaultDumpPromptsDir(this.runtime.config.cwd),
+          sessionId: this.sessionId,
+          turnId,
+          sequence: this.dumpSequence,
+          systemPrompt: assembledSystem,
+          messages: assembledMessages,
+          tokenEstimate: assemblySnapshot.tokenEstimate
+        });
+      }
+
       logger.emit(
         "model_request",
         {
           assembled: true,
-          systemPrompt: assembledSystem,
           task: this.context.task,
           projectInstructionsChars: this.context.projectInstructions.length,
           summary: this.context.summary,
@@ -174,7 +212,8 @@ export class HarnessSession {
           pinnedCount: this.context.pinned.length,
           environment: this.context.environment,
           tokenEstimate: assemblySnapshot.tokenEstimate,
-          compaction: this.context.compaction
+          compaction: this.context.compaction,
+          promptDumpPath
         },
         turnId
       );
@@ -295,6 +334,11 @@ export class HarnessSession {
       projectInstructions,
       environment: formatEnvironment(this.runtime.config)
     });
+    this.eventLog?.clear();
+  }
+
+  end(): void {
+    this.eventLog?.end();
   }
 
   snapshot(): SessionSnapshot {
@@ -324,6 +368,20 @@ export class HarnessSession {
       }))
     };
   }
+}
+
+function createSessionEventLog(
+  sessionId: string,
+  config: HarnessConfig
+): SessionEventLog | null {
+  if (config.sessionEventLog === false) {
+    return null;
+  }
+  return new SessionEventLog({
+    sessionId,
+    directory: config.sessionEventLogDir ?? defaultSessionEventLogDir(config.cwd),
+    mode: config.sessionMode
+  });
 }
 
 export function createHarnessSession(runtime: HarnessRuntime): HarnessSession {

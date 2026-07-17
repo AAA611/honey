@@ -29,6 +29,8 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **Root set**: the Compaction-proof layers re-injected every Turn: System, Project instructions, Task, Summary, Plan, Environment, and Pinned artifacts.
   _Avoid_: full Assembled prompt, Working set
 - **Session**: one interactive terminal conversation started by launching `honey`, preserving Transcript, context layers, Plan, and event continuity until the user exits.
+- **Session event log**: the Session-scoped durable append-only record of structured HarnessEvents persisted for inspection and replay; distinct from Transcript and from optional Assembled prompt dumps.
+  _Avoid_: chat log, conversation dump, prompt dump (as the name of this artifact)
 - **Context inventory**: the Session-visible breakdown of Assembled prompt layers, token estimates, Compaction status, and Root set membership; may also be persisted per Turn as a structural snapshot for later inspection.
   _Avoid_: raw prompt dump as the only observability surface
 - **REPL mode**: the interactive terminal mode entered by running `honey` with no prompt argument, using single-line input and repeated turns.

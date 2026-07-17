@@ -42,6 +42,7 @@ If you want to understand where the seams are between provider, runtime, tools, 
 - Provider abstraction with normalized tool-call responses
 - Lightweight task plan with status tracking
 - Structured event logging for run and turn inspection
+- Session event log: default-on JSONL timeline under `.honey/session-logs/` (disable with `--no-session-event-log`; override dir with `--session-event-log-dir` or `HONEY_SESSION_EVENT_LOG_DIR`)
 
 ### Tools
 
@@ -253,7 +254,6 @@ Planned next steps for the harness:
 
 - richer guarded approval flows
 - stronger patch formats and edit validation
-- persistent event-log storage
 - higher-signal eval fixtures
 - better session inspection and streaming UX
 - optional `--provider openai-compatible` CLI sugar on top of the existing adapter

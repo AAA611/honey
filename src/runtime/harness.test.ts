@@ -314,7 +314,200 @@ describe("HarnessRuntime", () => {
     expect(requestEvent?.payload.task).toBeTruthy();
     expect(requestEvent?.payload.workingSetCount).toEqual(expect.any(Number));
   });
+
+  it("writes Assembled prompt dumps when dumpPrompts is enabled", async () => {
+    const dir = await makeFixtureDir();
+    const dumpDir = join(dir, "prompt-dumps");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        dumpPrompts: true,
+        dumpPromptsDir: dumpDir
+      })
+    );
+
+    await session.runTurn("hello");
+
+    const files = await import("node:fs/promises").then(({ readdir }) =>
+      readdir(dumpDir, { recursive: true })
+    );
+    const dumpFiles = files
+      .map(String)
+      .filter((name) => name.endsWith(".md"));
+    expect(dumpFiles.length).toBeGreaterThan(0);
+
+    const body = await readFile(join(dumpDir, dumpFiles[0]!), "utf8");
+    expect(body).toContain("# Assembled prompt");
+    expect(body).toContain("## systemPrompt");
+    expect(body).toContain("## messages");
+    expect(body).toContain("Task:");
+  });
+
+  it("does not write Assembled prompt dumps when dumpPrompts is off", async () => {
+    const dir = await makeFixtureDir();
+    const dumpDir = join(dir, "prompt-dumps");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        dumpPrompts: false,
+        dumpPromptsDir: dumpDir
+      })
+    );
+
+    await session.runTurn("hello");
+
+    const exists = await import("node:fs/promises")
+      .then(({ access }) => access(dumpDir).then(() => true))
+      .catch(() => false);
+    expect(exists).toBe(false);
+  });
+
+  it("writes a Session event log with session_started and Run events", async () => {
+    const dir = await makeFixtureDir();
+    const logDir = join(dir, "session-logs");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        sessionEventLog: true,
+        sessionEventLogDir: logDir
+      })
+    );
+
+    const result = await session.runTurn("hello");
+    const logPath = session.sessionEventLogPath;
+    expect(logPath).toBeTruthy();
+    expect(logPath).toContain(logDir);
+
+    const events = await readJsonl(logPath!);
+    expect(events[0]?.type).toBe("session_started");
+    expect(events[0]?.sessionId).toBe(session.sessionId);
+    expect(events.some((event) => event.type === "run_started")).toBe(true);
+    expect(events.some((event) => event.type === "run_finished")).toBe(true);
+    expect(result.events.some((event) => event.type === "run_started")).toBe(true);
+    for (const event of events.filter((item) => item.type === "run_started")) {
+      expect(event.sessionId).toBe(session.sessionId);
+      expect(event.runId).toBeTruthy();
+    }
+  });
+
+  it("keeps the same Session event log after clear and records session_cleared", async () => {
+    const dir = await makeFixtureDir();
+    const logDir = join(dir, "session-logs");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        sessionEventLog: true,
+        sessionEventLogDir: logDir
+      })
+    );
+
+    await session.runTurn("first");
+    const pathBefore = session.sessionEventLogPath;
+    session.clear();
+    await session.runTurn("second");
+    const pathAfter = session.sessionEventLogPath;
+
+    expect(pathAfter).toBe(pathBefore);
+    const events = await readJsonl(pathAfter!);
+    expect(events.some((event) => event.type === "session_cleared")).toBe(true);
+    const runStarts = events.filter((event) => event.type === "run_started");
+    expect(runStarts).toHaveLength(2);
+    expect(runStarts[0]?.runId).not.toBe(runStarts[1]?.runId);
+    expect(runStarts[0]?.sessionId).toBe(runStarts[1]?.sessionId);
+  });
+
+  it("omits full systemPrompt from model_request events in memory and on disk", async () => {
+    const dir = await makeFixtureDir();
+    const logDir = join(dir, "session-logs");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        sessionEventLog: true,
+        sessionEventLogDir: logDir
+      })
+    );
+
+    const result = await session.runTurn("hello");
+    const requestEvent = result.events.find((event) => event.type === "model_request");
+    expect(requestEvent?.payload.systemPrompt).toBeUndefined();
+    expect(requestEvent?.payload).toMatchObject({
+      assembled: true,
+      workingSetCount: expect.any(Number)
+    });
+
+    const diskEvents = await readJsonl(session.sessionEventLogPath!);
+    const diskRequest = diskEvents.find((event) => event.type === "model_request");
+    expect(diskRequest?.payload?.systemPrompt).toBeUndefined();
+  });
+
+  it("does not write a Session event log when sessionEventLog is disabled", async () => {
+    const dir = await makeFixtureDir();
+    const logDir = join(dir, "session-logs");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        sessionEventLog: false,
+        sessionEventLogDir: logDir
+      })
+    );
+
+    await session.runTurn("hello");
+
+    expect(session.sessionEventLogPath).toBeNull();
+    const exists = await import("node:fs/promises")
+      .then(({ access }) => access(logDir).then(() => true))
+      .catch(() => false);
+    expect(exists).toBe(false);
+  });
+
+  it("writes session_ended when the Session ends", async () => {
+    const dir = await makeFixtureDir();
+    const logDir = join(dir, "session-logs");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        sessionEventLog: true,
+        sessionEventLogDir: logDir
+      })
+    );
+
+    await session.runTurn("hello");
+    session.end();
+
+    const events = await readJsonl(session.sessionEventLogPath!);
+    expect(events.at(-1)?.type).toBe("session_ended");
+  });
+
+  it("links Assembled prompt dumps via promptDumpPath on model_request", async () => {
+    const dir = await makeFixtureDir();
+    const logDir = join(dir, "session-logs");
+    const dumpDir = join(dir, "prompt-dumps");
+    const session = createHarnessSession(
+      createRuntime(dir, false, new ScriptedProvider(), {
+        sessionEventLog: true,
+        sessionEventLogDir: logDir,
+        dumpPrompts: true,
+        dumpPromptsDir: dumpDir
+      })
+    );
+
+    const result = await session.runTurn("hello");
+    const requestEvent = result.events.find((event) => event.type === "model_request");
+    expect(typeof requestEvent?.payload.promptDumpPath).toBe("string");
+    expect(String(requestEvent?.payload.promptDumpPath)).toContain(dumpDir);
+
+    const diskEvents = await readJsonl(session.sessionEventLogPath!);
+    const diskRequest = diskEvents.find((event) => event.type === "model_request");
+    expect(diskRequest?.payload?.promptDumpPath).toBe(requestEvent?.payload.promptDumpPath);
+  });
 });
+
+async function readJsonl(path: string) {
+  const body = await readFile(path, "utf8");
+  return body
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as {
+      type: string;
+      sessionId?: string;
+      runId?: string;
+      payload?: Record<string, unknown>;
+    });
+}
 
 class RecordingProvider implements Provider {
   readonly name: string;

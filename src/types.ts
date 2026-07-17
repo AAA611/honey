@@ -16,6 +16,9 @@ export type ToolName =
   | "run_tests";
 
 export type EventType =
+  | "session_started"
+  | "session_cleared"
+  | "session_ended"
   | "run_started"
   | "state_transition"
   | "plan_updated"
@@ -164,6 +167,7 @@ export interface AssemblySnapshot {
 export interface HarnessEvent {
   timestamp: string;
   runId: string;
+  sessionId?: string;
   turnId: string | null;
   type: EventType;
   payload: Record<string, unknown>;
@@ -184,6 +188,19 @@ export interface HarnessConfig {
   allowGuardedTools: boolean;
   systemPrompt: string;
   tokenBudget: number;
+  /** When true, write each Assembled prompt to dumpPromptsDir before Provider send. */
+  dumpPrompts?: boolean;
+  /** Absolute or cwd-relative directory for prompt dumps. Defaults to `<cwd>/.honey/prompt-dumps`. */
+  dumpPromptsDir?: string;
+  /**
+   * When true (default), persist a Session event log JSONL under sessionEventLogDir.
+   * Set false to disable disk writes (useful for evals and focused unit tests).
+   */
+  sessionEventLog?: boolean;
+  /** Absolute or cwd-relative directory for Session event logs. Defaults to `<cwd>/.honey/session-logs`. */
+  sessionEventLogDir?: string;
+  /** Optional Session mode recorded on session_started. */
+  sessionMode?: "repl" | "command";
 }
 
 export interface HarnessRunResult {

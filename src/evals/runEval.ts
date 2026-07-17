@@ -9,7 +9,8 @@ async function main() {
     maxTurns: 4,
     allowGuardedTools: false,
     systemPrompt: createDefaultSystemPrompt(),
-    tokenBudget: 24_000
+    tokenBudget: 24_000,
+    sessionEventLog: false
   });
 
   const result = await runtime.run("read: CONTEXT.md");
