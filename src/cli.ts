@@ -3,6 +3,11 @@
 import { createInterface } from "node:readline/promises";
 import { cwd, env, stdin, stdout } from "node:process";
 import { resolve } from "node:path";
+import {
+  isSkillPickerCommand,
+  pickSkill,
+  questionWithSkillPrefill
+} from "./cli/skillPicker.js";
 import { createCliRuntime, parseCliArgs } from "./cliConfig.js";
 import { defaultDumpPromptsDir } from "./context/promptDump.js";
 import {
@@ -64,8 +69,16 @@ async function runRepl(runtime: HarnessRuntime) {
   writeSessionBanner();
 
   try {
+    let prefillSkill: string | null = null;
+
     while (true) {
-      const line = (await rl.question("honey> ")).trim();
+      const line = (
+        prefillSkill
+          ? await questionWithSkillPrefill(rl, "honey> ", prefillSkill)
+          : await rl.question("honey> ")
+      ).trim();
+      prefillSkill = null;
+
       if (!line) {
         continue;
       }
@@ -84,6 +97,32 @@ async function runRepl(runtime: HarnessRuntime) {
 
       if (line === "context") {
         stdout.write(session.formatContextInventory());
+        continue;
+      }
+
+      if (isSkillPickerCommand(line)) {
+        const skills = runtime.skillRegistry.list();
+        const isTTY = stdin.isTTY === true;
+        let picked;
+        if (isTTY) {
+          rl.pause();
+          try {
+            picked = await pickSkill({ skills, isTTY: true });
+          } finally {
+            rl.resume();
+          }
+        } else {
+          picked = await pickSkill({ skills, isTTY: false });
+        }
+
+        if (picked.status === "empty") {
+          stdout.write("No skills discovered.\n");
+          continue;
+        }
+        if (picked.status === "cancelled") {
+          continue;
+        }
+        prefillSkill = picked.skillName;
         continue;
       }
 

@@ -42,6 +42,25 @@ describe("CLI seam", () => {
     expect(result.stdout).toContain("Root set");
   });
 
+  it("lists Skills for / in non-TTY REPL", () => {
+    const result = spawnSync("node", [cliEntry], {
+      cwd: process.cwd(),
+      // Single line only: multi-question piped stdin is unreliable under spawnSync.
+      input: "/\n",
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        // Isolate from the developer's ~/.agents/skills while keeping bundled skills.
+        HONEY_SKILLS_HOME: resolve(process.cwd(), ".honey-test-empty-home")
+      }
+    });
+
+    const combined = `${result.stdout}\n${result.stderr}`;
+    expect(combined).toContain("Skills");
+    expect(combined).toContain("skill-guide");
+    expect(combined).toContain("$name");
+  });
+
   it("does not print the Session banner in command mode", () => {
     const result = spawnSync("node", [cliEntry, "read: CONTEXT.md"], {
       cwd: process.cwd(),

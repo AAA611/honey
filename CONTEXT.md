@@ -42,6 +42,8 @@ This repository contains a local CLI harness project for learning how Claude Cod
   _Avoid_: Tool, Project instructions, prompt template, system prompt fragment (as the name of this package)
 - **Skill catalog**: the compact discovery index of available Skills (name, description, path, and optional resource pointers) injected each Turn so the model can see what exists without loading Skill bodies.
   _Avoid_: full Skill body dump, Project instructions
+- **Skill picker**: the REPL-only interactive surface opened by `/` or `/skills` to choose one Skill and prefill an explicit `$name` mention; not part of the Assembled prompt. On a TTY it uses arrow-key selection; on non-TTY it lists Skills and directs the user to type `$name`.
+  _Avoid_: Skill catalog, slash command palette (as a full product feature in v1)
 - **Skill scope**: the discovery origin of a Skill — repo, user, or bundled — used for precedence and script-approval policy.
   _Avoid_: Plugin scope, Tool risk (as a substitute name for origin)
 - **Plugin**: an installable distribution unit that packages one or more Skills (and later may bundle connectors); not itself a layer in the Assembled prompt.

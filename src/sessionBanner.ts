@@ -4,7 +4,8 @@ export type SessionBannerOptions = {
   noColor?: boolean;
 };
 
-const USAGE_LINE = "Type a prompt, or exit to quit.";
+const USAGE_LINE =
+  "Type a prompt, / or /skills to pick a Skill, or exit to quit.";
 const AMBER = "\u001b[38;5;214m";
 const RESET = "\u001b[0m";
 

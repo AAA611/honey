@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { formatSessionBanner } from "./sessionBanner.js";
 
+const USAGE =
+  "Type a prompt, / or /skills to pick a Skill, or exit to quit.";
+
 describe("Session banner seam", () => {
   it("returns empty output when stdout is not a TTY", () => {
     expect(
@@ -19,7 +22,7 @@ describe("Session banner seam", () => {
         columns: 20,
         noColor: true
       })
-    ).toBe("HONEY\nType a prompt, or exit to quit.\n");
+    ).toBe(`HONEY\n${USAGE}\n`);
   });
 
   it("prints the tall decorative wordmark on a wide TTY", () => {
@@ -42,7 +45,7 @@ describe("Session banner seam", () => {
         "   \\  \\:\\        \\  \\:\\/:/     \\  \\:\\        \\  \\:\\/:/        \\  \\:\\",
         "    \\  \\:\\        \\  \\::/       \\  \\:\\        \\  \\::/          \\__\\/",
         "     \\__\\/         \\__\\/         \\__\\/         \\__\\/                ",
-        "Type a prompt, or exit to quit.",
+        USAGE,
         ""
       ].join("\n")
     );
@@ -56,7 +59,7 @@ describe("Session banner seam", () => {
     });
 
     expect(output.startsWith("\u001b[38;5;214m")).toBe(true);
-    expect(output).toContain("\u001b[0m\nType a prompt, or exit to quit.\n");
+    expect(output).toContain(`\u001b[0m\n${USAGE}\n`);
     expect(output).not.toMatch(/\u001b\[38;5;214mType a prompt/);
   });
 });
