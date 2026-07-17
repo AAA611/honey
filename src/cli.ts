@@ -50,6 +50,17 @@ async function runRepl(runtime: HarnessRuntime) {
     output: stdout
   });
 
+  runtime.config.confirmSkillScript = async (request) => {
+    const answer = (
+      await rl.question(
+        `Run user Skill script ${request.skillName}:${request.script}? [y/N] `
+      )
+    )
+      .trim()
+      .toLowerCase();
+    return answer === "y" || answer === "yes";
+  };
+
   writeSessionBanner();
 
   try {
@@ -126,7 +137,8 @@ function createRuntime(
     sessionEventLogDir: cli.sessionEventLogDir
       ? resolve(cli.sessionEventLogDir)
       : undefined,
-    sessionMode
+    sessionMode,
+    skillsHomeDir: env.HONEY_SKILLS_HOME
   });
 }
 

@@ -24,8 +24,10 @@ import { estimateMessageTokens, estimateTokens } from "./tokens.js";
  * 3. Task — 当前用户目标与验收口径
  * 4. Plan — 步骤进度（状态列表，不是验收替代品）
  * 5. Environment — cwd、平台等会话环境事实
- * 6. Summary — 被压出来的早期历史摘要
- * 7. Pinned artifacts — 用户点名钉住的材料
+ * 6. Skill catalog — 可用 Skills 的发现菜单（无正文）
+ * 7. Skill instructions — 本 Run 显式 `$skill` 注入的正文（可空）
+ * 8. Summary — 被压出来的早期历史摘要
+ * 9. Pinned artifacts — 用户点名钉住的材料
  *
  * Working set（近期对话与工具 I/O）**不**进这段字符串；由
  * {@link assembleProviderMessages} 单独作为消息列表附上。
@@ -42,6 +44,8 @@ export function assembleSystemPrompt(layers: ContextLayers, plan: Plan | null): 
     section("Task", layers.task),
     section("Plan", formatPlan(plan)),
     section("Environment", layers.environment),
+    section("Skill catalog", layers.skillCatalog),
+    section("Skill instructions", layers.skillInstructions),
     section("Summary", layers.summary.join("\n")),
     section("Pinned artifacts", formatPinned(layers.pinned))
   ];
@@ -130,6 +134,8 @@ export function createAssemblySnapshot(
       projectInstructions: layers.projectInstructions,
       task: layers.task,
       environment: layers.environment,
+      skillCatalog: layers.skillCatalog,
+      skillInstructions: layers.skillInstructions,
       summary: [...layers.summary],
       // Working set：只留结构指纹，不拷正文
       workingSetCount: layers.workingSet.length,

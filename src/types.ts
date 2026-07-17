@@ -1,3 +1,5 @@
+import type { SkillRegistry } from "./skills/registry.js";
+
 export type HarnessState =
   | "USER_INPUT"
   | "MODEL_TURN"
@@ -13,7 +15,8 @@ export type ToolName =
   | "search_workspace"
   | "exec_command"
   | "apply_patch"
-  | "run_tests";
+  | "run_tests"
+  | "run_skill_script";
 
 export type EventType =
   | "session_started"
@@ -87,6 +90,14 @@ export interface ToolDefinition {
 
 export interface ToolExecutionContext {
   cwd: string;
+  allowGuardedTools?: boolean;
+  skillRegistry?: SkillRegistry;
+  confirmSkillScript?: (request: {
+    skillName: string;
+    script: string;
+    scope: "repo" | "user" | "bundled";
+    absolutePath: string;
+  }) => Promise<boolean>;
 }
 
 export interface ToolExecutionResult {
@@ -136,6 +147,10 @@ export interface ContextLayers {
   projectInstructions: string;
   task: string;
   environment: string;
+  /** Compact Skill discovery index; Root set; bodies are not included. */
+  skillCatalog: string;
+  /** Explicit `$skill` bodies injected for the current Run only. */
+  skillInstructions: string;
   workingSet: ConversationMessage[];
   summary: string[];
   pinned: PinnedArtifact[];
@@ -155,6 +170,8 @@ export interface AssemblySnapshot {
     projectInstructions: string;
     task: string;
     environment: string;
+    skillCatalog: string;
+    skillInstructions: string;
     summary: string[];
     workingSetCount: number;
     workingSetRoles: Array<ConversationMessage["role"]>;
@@ -188,6 +205,12 @@ export interface HarnessConfig {
   allowGuardedTools: boolean;
   systemPrompt: string;
   tokenBudget: number;
+  /** Optional override for Skill discovery home directory (tests). */
+  skillsHomeDir?: string;
+  /** Optional override for bundled Skills directory (tests). */
+  bundledSkillsDir?: string;
+  /** Confirm user-scoped Skill scripts (REPL). Defaults to deny. */
+  confirmSkillScript?: ToolExecutionContext["confirmSkillScript"];
   /** When true, write each Assembled prompt to dumpPromptsDir before Provider send. */
   dumpPrompts?: boolean;
   /** Absolute or cwd-relative directory for prompt dumps. Defaults to `<cwd>/.honey/prompt-dumps`. */

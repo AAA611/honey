@@ -5,6 +5,8 @@ export function createContextLayers(input: {
   task?: string;
   projectInstructions?: string;
   environment?: string;
+  skillCatalog?: string;
+  skillInstructions?: string;
   pinned?: PinnedArtifact[];
 }): ContextLayers {
   return {
@@ -12,6 +14,8 @@ export function createContextLayers(input: {
     projectInstructions: input.projectInstructions ?? "",
     task: input.task ?? "",
     environment: input.environment ?? "",
+    skillCatalog: input.skillCatalog ?? "",
+    skillInstructions: input.skillInstructions ?? "",
     workingSet: [],
     summary: [],
     pinned: input.pinned ?? [],

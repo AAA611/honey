@@ -25,6 +25,8 @@ import {
   SessionEventLog
 } from "../logging/sessionEventLog.js";
 import { createInitialPlan, markPlanStep } from "../planning/plan.js";
+import { formatExplicitSkillInstructions } from "../skills/catalog.js";
+import { SkillRegistry } from "../skills/registry.js";
 import { ToolRegistry } from "../tools/registry.js";
 import type {
   AssemblySnapshot,
@@ -43,15 +45,24 @@ import type {
 } from "../types.js";
 
 export class HarnessRuntime {
+  readonly toolRegistry: ToolRegistry;
+  readonly skillRegistry: SkillRegistry;
+
   constructor(
     readonly provider: Provider,
     tools: Tool[],
-    readonly config: HarnessConfig
+    readonly config: HarnessConfig,
+    skillRegistry?: SkillRegistry
   ) {
+    this.skillRegistry =
+      skillRegistry ??
+      SkillRegistry.discover({
+        cwd: config.cwd,
+        homeDir: config.skillsHomeDir,
+        bundledSkillsDir: config.bundledSkillsDir
+      });
     this.toolRegistry = new ToolRegistry(tools);
   }
-
-  readonly toolRegistry: ToolRegistry;
 
   async run(userInput: string): Promise<HarnessRunResult> {
     const session = createHarnessSession(this);
@@ -79,14 +90,22 @@ export class HarnessRuntime {
     }
 
     if (tool.definition.risk === "guarded" && !this.config.allowGuardedTools) {
-      return {
-        ok: false,
-        content: `Guarded tool requires approval: ${toolCall.toolName}`
-      };
+      // run_skill_script applies its own scope-based approval inside the tool.
+      if (toolCall.toolName !== "run_skill_script") {
+        return {
+          ok: false,
+          content: `Guarded tool requires approval: ${toolCall.toolName}`
+        };
+      }
     }
 
     try {
-      return await tool.execute(toolCall.arguments, { cwd: this.config.cwd });
+      return await tool.execute(toolCall.arguments, {
+        cwd: this.config.cwd,
+        allowGuardedTools: this.config.allowGuardedTools,
+        skillRegistry: this.skillRegistry,
+        confirmSkillScript: this.config.confirmSkillScript
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown tool failure";
       return {
@@ -111,7 +130,8 @@ export class HarnessSession {
     this.context = createContextLayers({
       system: this.runtime.config.systemPrompt,
       projectInstructions: loadProjectInstructions(this.runtime.config.cwd),
-      environment: formatEnvironment(this.runtime.config)
+      environment: formatEnvironment(this.runtime.config),
+      skillCatalog: this.runtime.skillRegistry.catalogText()
     });
     this.eventLog = createSessionEventLog(this.sessionId, this.runtime.config);
   }
@@ -134,8 +154,12 @@ export class HarnessSession {
       currentTask: this.context.task,
       plan: this.plan
     });
-    const effectiveInput =
+    const transitionInput =
       transitionKind === "replace" ? stripTaskSwitchPrefix(userInput) : userInput;
+
+    const mention = this.runtime.skillRegistry.resolveMentions(transitionInput);
+    const effectiveInput = mention.strippedInput;
+    const skillInstructions = formatExplicitSkillInstructions(mention.skills);
 
     if (transitionKind === "replace" || !this.plan) {
       this.context = {
@@ -147,6 +171,8 @@ export class HarnessSession {
 
     this.context = {
       ...this.context,
+      skillCatalog: this.runtime.skillRegistry.catalogText(),
+      skillInstructions,
       pinned: autoPinFromUserInput(
         effectiveInput,
         this.context.pinned,
@@ -168,7 +194,12 @@ export class HarnessSession {
 
     logger.emit(
       "run_started",
-      { provider: this.runtime.provider.name, input: effectiveInput },
+      {
+        provider: this.runtime.provider.name,
+        input: effectiveInput,
+        explicitSkills: mention.skills.map((skill) => skill.name),
+        unknownSkills: mention.unknown
+      },
       turnId
     );
     logger.emit("plan_updated", { plan: this.plan }, turnId);
@@ -210,6 +241,8 @@ export class HarnessSession {
           summary: this.context.summary,
           workingSetCount: this.context.workingSet.length,
           pinnedCount: this.context.pinned.length,
+          skillCatalogChars: this.context.skillCatalog.length,
+          skillInstructionsChars: this.context.skillInstructions.length,
           environment: this.context.environment,
           tokenEstimate: assemblySnapshot.tokenEstimate,
           compaction: this.context.compaction,
@@ -332,7 +365,8 @@ export class HarnessSession {
     this.context = createContextLayers({
       system: this.runtime.config.systemPrompt,
       projectInstructions,
-      environment: formatEnvironment(this.runtime.config)
+      environment: formatEnvironment(this.runtime.config),
+      skillCatalog: this.runtime.skillRegistry.catalogText()
     });
     this.eventLog?.clear();
   }
@@ -424,7 +458,9 @@ export function createDefaultSystemPrompt(): string {
     "You are a local CLI harness runtime.",
     "Use tools through structured calls.",
     "Prefer reading before changing files.",
-    "Respect safe, guarded, and blocked tool policy."
+    "Respect safe, guarded, and blocked tool policy.",
+    "When a Skill in the catalog matches the Task, read its SKILL.md via read_file before following it.",
+    "Run Skill packaged scripts only through run_skill_script."
   ].join(" ");
 }
 

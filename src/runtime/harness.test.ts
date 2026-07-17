@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -77,6 +77,49 @@ describe("HarnessRuntime", () => {
     const lastRequest = recorder.requests.at(-1);
     expect(lastRequest?.messages.some((message) => message.role === "tool")).toBe(
       true
+    );
+  });
+
+  it("injects Skill catalog and explicit $skill body into Assembled prompt", async () => {
+    const dir = await makeFixtureDir();
+    await mkdir(join(dir, ".honey", "skills", "demo"), { recursive: true });
+    await writeFile(
+      join(dir, ".honey", "skills", "demo", "SKILL.md"),
+      `---
+name: demo
+description: Demo skill for harness wiring
+---
+
+FOLLOW_DEMO_SKILL
+`,
+      "utf8"
+    );
+    const recorder = new RecordingProvider(
+      new ScriptedProvider([
+        {
+          when: () => true,
+          response: () => ({
+            stopReason: "completed",
+            assistantMessage: {
+              role: "assistant",
+              content: "done with demo skill"
+            },
+            toolCalls: []
+          })
+        }
+      ])
+    );
+    const session = createHarnessSession(createRuntime(dir, false, recorder));
+
+    await session.runTurn("$demo summarize the skill");
+
+    expect(recorder.requests[0]?.systemPrompt).toContain("Skill catalog:");
+    expect(recorder.requests[0]?.systemPrompt).toContain("demo:");
+    expect(recorder.requests[0]?.systemPrompt).toContain("FOLLOW_DEMO_SKILL");
+    expect(recorder.requests[0]?.systemPrompt).toContain("Skill instructions:");
+    const user = recorder.requests[0]?.messages.find((message) => message.role === "user");
+    expect(user && user.role === "user" ? user.content : "").toBe(
+      "summarize the skill"
     );
   });
 
@@ -539,6 +582,8 @@ function createRuntime(
     allowGuardedTools,
     systemPrompt: createDefaultSystemPrompt(),
     tokenBudget: 8_000,
+    skillsHomeDir: join(dir, ".honey-test-home"),
+    sessionEventLog: false,
     ...overrides
   });
 }

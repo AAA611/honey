@@ -19,6 +19,8 @@ export function formatContextInventory(
     `  Task: ${preview(layers.task)}`,
     `  Plan: ${plan ? `${plan.steps.length} steps (${plan.goal})` : "(none)"}`,
     `  Environment: ${preview(layers.environment)}`,
+    `  Skill catalog: ${layers.skillCatalog.trim() ? preview(layers.skillCatalog) : "(empty)"}`,
+    `  Skill instructions: ${layers.skillInstructions.trim() ? preview(layers.skillInstructions) : "(none)"}`,
     `  Summary: ${layers.summary.length} entries`,
     `  Pinned artifacts: ${layers.pinned.length}`,
     "",

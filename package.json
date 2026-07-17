@@ -12,7 +12,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node ./scripts/clean-dist.mjs",
+    "build": "tsc -p tsconfig.json && node ./scripts/copy-skill-assets.mjs && node ./scripts/clean-dist.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "eval": "node --enable-source-maps dist/evals/runEval.js",

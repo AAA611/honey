@@ -26,8 +26,8 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **Summary**: compressed prior context retained after history pressure relief, replacing older Transcript material rather than duplicating it. Early writers may be deterministic; later writers may use a model Turn under the same Summary contract.
 - **Compaction**: the Harness-owned pressure relief for the Assembled prompt: first clear or shrink re-fetchable tool results under a token budget, then compress older history into Summary when still over budget. Budget checks use a required local token heuristic and may optionally calibrate with Provider-exact counting when available.
   _Avoid_: truncation-only trimming, message-count-only triggers, full Claude Code compaction cascade, provider passthrough history management
-- **Root set**: the Compaction-proof layers re-injected every Turn: System, Project instructions, Task, Summary, Plan, Environment, and Pinned artifacts.
-  _Avoid_: full Assembled prompt, Working set
+- **Root set**: the Compaction-proof layers re-injected every Turn: System, Project instructions, Task, Summary, Plan, Environment, Skill catalog, and Pinned artifacts.
+  _Avoid_: full Assembled prompt, Working set, Skill body (loaded via tools into the Working set when used)
 - **Session**: one interactive terminal conversation started by launching `honey`, preserving Transcript, context layers, Plan, and event continuity until the user exits.
 - **Session event log**: the Session-scoped durable append-only record of structured HarnessEvents persisted for inspection and replay; distinct from Transcript and from optional Assembled prompt dumps.
   _Avoid_: chat log, conversation dump, prompt dump (as the name of this artifact)
@@ -38,5 +38,13 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **Bin entrypoint**: the packaged executable command exposed as `honey` through npm's `bin` field.
 - **Session banner**: the branded welcome surface of a Session (ASCII wordmark plus a short usage line), shown on Session entry and after `clear`, and never in Command mode.
   _Avoid_: splash screen, startup logo, welcome message
+- **Skill**: a reusable task-specific package (instructions plus optional scripts or references) that the Harness may activate for a Task; distinct from Tool (callable capability) and from Project instructions (always-on repo guidance).
+  _Avoid_: Tool, Project instructions, prompt template, system prompt fragment (as the name of this package)
+- **Skill catalog**: the compact discovery index of available Skills (name, description, path, and optional resource pointers) injected each Turn so the model can see what exists without loading Skill bodies.
+  _Avoid_: full Skill body dump, Project instructions
+- **Skill scope**: the discovery origin of a Skill — repo, user, or bundled — used for precedence and script-approval policy.
+  _Avoid_: Plugin scope, Tool risk (as a substitute name for origin)
+- **Plugin**: an installable distribution unit that packages one or more Skills (and later may bundle connectors); not itself a layer in the Assembled prompt.
+  _Avoid_: Skill, Tool, MCP server (unless referring to a bundled connector)
 
 This glossary is intentionally small and should grow only when a term becomes stable and necessary.
