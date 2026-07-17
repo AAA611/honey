@@ -90,7 +90,7 @@ export function pushKittyCsiFragment(
   return { buffer: "", completed: null, flushed: "" };
 }
 
-/** Keys that dismiss the slash overlay (Esc, Ctrl+G; Ctrl+C handled by caller). */
+/** Keys that dismiss the slash overlay (Esc, Ctrl+[, Ctrl+G; Ctrl+C handled by caller). */
 export function isSlashDismissKey(
   input: string,
   key: ComposerKeyFlags
@@ -100,6 +100,6 @@ export function isSlashDismissKey(
     input === "\u001b" ||
     input === "\x1b" ||
     isKittyEncodedEscape(input) ||
-    (key.ctrl && (input === "g" || input === "G"))
+    (key.ctrl && (input === "[" || input === "g" || input === "G"))
   );
 }

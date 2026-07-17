@@ -193,6 +193,7 @@ describe("slash Esc dismiss (Ink stdin path)", () => {
     expect(closedFrame).not.toContain("/context —");
     expect(closedFrame).not.toMatch(/honey›\s*\//);
   });
+
 });
 
 function createMocks(): {

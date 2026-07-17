@@ -97,6 +97,10 @@ describe("isSlashDismissKey", () => {
     expect(isSlashDismissKey("g", { escape: false, ctrl: true })).toBe(true);
   });
 
+  it("treats Ctrl+[ as dismiss", () => {
+    expect(isSlashDismissKey("[", { escape: false, ctrl: true })).toBe(true);
+  });
+
   it("does not treat plain letters as dismiss", () => {
     expect(isSlashDismissKey("c", { escape: false, ctrl: false })).toBe(false);
     expect(isSlashDismissKey("/", { escape: false, ctrl: false })).toBe(false);
