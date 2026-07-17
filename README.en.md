@@ -1,7 +1,7 @@
 [中文](README.md) | English
 
 <p align="center">
-  <img src="docs/assets/honey-banner.svg" alt="HONEY" width="100%" />
+  <img src="docs/assets/honey-banner.png" alt="HONEY" width="100%" />
 </p>
 
 <p align="center">

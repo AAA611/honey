@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="HONEY">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
@@ -18,6 +19,6 @@
   <rect width="1280" height="320" fill="url(#honeycomb)"/>
   <rect x="0" y="0" width="1280" height="4" fill="#FFAF00" opacity="0.85"/>
   <rect x="0" y="316" width="1280" height="4" fill="#FFAF00" opacity="0.45"/>
-  <text x="640" y="175" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" font-size="128" font-weight="700" letter-spacing="18" fill="url(#amber)">HONEY</text>
-  <text x="640" y="230" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" font-size="22" letter-spacing="4" fill="#D7B56A" opacity="0.9">local agent harness · learn the runtime</text>
+  <text x="640" y="175" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace" font-size="128" font-weight="700" letter-spacing="18" fill="url(#amber)">HONEY</text>
+  <text x="640" y="230" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace" font-size="22" letter-spacing="4" fill="#D7B56A" opacity="0.9">local agent harness - learn the runtime</text>
 </svg>
