@@ -10,6 +10,7 @@ export type CliProviderName = "scripted" | "deepseek";
 export interface ParsedCliArgs {
   provider: CliProviderName;
   allowGuardedTools: boolean;
+  mcp: boolean;
   dumpPrompts: boolean;
   dumpPromptsDir?: string;
   sessionEventLog: boolean;
@@ -22,6 +23,7 @@ export interface ParsedCliArgs {
 export interface CliRuntimeConfig {
   provider: Provider;
   allowGuardedTools: boolean;
+  mcp: boolean;
   dumpPrompts: boolean;
   dumpPromptsDir?: string;
   sessionEventLog: boolean;
@@ -41,6 +43,7 @@ const DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash";
 export function parseCliArgs(argv: string[]): ParsedCliArgs {
   let provider: CliProviderName = "scripted";
   let allowGuardedTools = false;
+  let mcp = false;
   let dumpPrompts = false;
   let dumpPromptsDir: string | undefined;
   let sessionEventLog = true;
@@ -73,6 +76,10 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       allowGuardedTools = true;
       continue;
     }
+    if (arg === "--mcp") {
+      mcp = true;
+      continue;
+    }
     if (arg === "--dump-prompts") {
       dumpPrompts = true;
       continue;
@@ -99,6 +106,7 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
   return {
     provider,
     allowGuardedTools,
+    mcp,
     dumpPrompts,
     dumpPromptsDir,
     sessionEventLog,
@@ -127,6 +135,7 @@ export function createCliRuntime(
     return {
       provider: new ScriptedProvider(),
       allowGuardedTools: args.allowGuardedTools,
+      mcp: args.mcp,
       dumpPrompts,
       dumpPromptsDir,
       sessionEventLog,
@@ -158,6 +167,7 @@ export function createCliRuntime(
       transport: options.transport
     }),
     allowGuardedTools: args.allowGuardedTools,
+    mcp: args.mcp,
     dumpPrompts,
     dumpPromptsDir,
     sessionEventLog,

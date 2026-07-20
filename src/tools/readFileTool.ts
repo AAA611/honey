@@ -7,6 +7,7 @@ export const readFileTool: Tool = {
     name: "read_file",
     description: "Read a UTF-8 file from the workspace.",
     risk: "safe",
+    refetchable: true,
     inputSchema: {
       type: "object",
       properties: {

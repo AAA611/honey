@@ -5,8 +5,7 @@ import type {
   ProviderTurnResponse,
   TokenUsage,
   ToolCall,
-  ToolDefinition,
-  ToolName
+  ToolDefinition
 } from "../types.js";
 
 export type HttpTransport = (
@@ -55,14 +54,6 @@ interface OpenAiChatCompletionResponse {
     message?: string;
   };
 }
-
-const KNOWN_TOOLS = new Set<string>([
-  "read_file",
-  "search_workspace",
-  "exec_command",
-  "apply_patch",
-  "run_tests"
-]);
 
 export class OpenAiCompatibleProvider implements Provider {
   readonly name: string;
@@ -214,9 +205,10 @@ function mapUsage(
 }
 
 function mapToolCall(toolCall: OpenAiToolCall): ToolCall {
-  if (!KNOWN_TOOLS.has(toolCall.function.name)) {
+  const toolName = toolCall.function.name;
+  if (!toolName) {
     throw new Error(
-      `OpenAI-compatible provider returned unknown tool "${toolCall.function.name}".`
+      "OpenAI-compatible provider returned a tool call with an empty name."
     );
   }
 
@@ -225,13 +217,13 @@ function mapToolCall(toolCall: OpenAiToolCall): ToolCall {
     args = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
   } catch {
     throw new Error(
-      `OpenAI-compatible provider returned malformed tool arguments for "${toolCall.function.name}".`
+      `OpenAI-compatible provider returned malformed tool arguments for "${toolName}".`
     );
   }
 
   return {
     callId: toolCall.id,
-    toolName: toolCall.function.name as ToolName,
+    toolName,
     arguments: args
   };
 }

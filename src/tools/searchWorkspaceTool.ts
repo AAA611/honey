@@ -7,6 +7,7 @@ export const searchWorkspaceTool: Tool = {
     name: "search_workspace",
     description: "Search the workspace for a text pattern.",
     risk: "safe",
+    refetchable: true,
     inputSchema: {
       type: "object",
       properties: {

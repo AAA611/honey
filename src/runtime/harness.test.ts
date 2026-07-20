@@ -138,6 +138,99 @@ FOLLOW_DEMO_SKILL
     );
   });
 
+  it("exposes Connector Tools on the Provider surface and clears refetchable results", async () => {
+    const dir = await makeFixtureDir();
+    const connectorResult = "Y".repeat(4000);
+    const connectorTool = {
+      definition: {
+        name: "web_search_exa",
+        description: "Search the web via Connector",
+        risk: "safe" as const,
+        refetchable: true,
+        inputSchema: {
+          type: "object",
+          properties: { query: { type: "string" } }
+        }
+      },
+      async execute() {
+        return { ok: true, content: connectorResult };
+      }
+    };
+    const provider: Provider = {
+      name: "connector-scripted",
+      async sendTurn(request) {
+        const hasConnector = request.tools.some(
+          (tool) => tool.name === "web_search_exa"
+        );
+        if (!hasConnector) {
+          return {
+            assistantMessage: { role: "assistant", content: "missing tool" },
+            toolCalls: [],
+            stopReason: "completed"
+          };
+        }
+        const already = request.messages.some((message) => message.role === "tool");
+        if (!already) {
+          return {
+            assistantMessage: {
+              role: "assistant",
+              content: "",
+              toolCalls: [
+                {
+                  callId: "c1",
+                  toolName: "web_search_exa",
+                  arguments: { query: "React 19" }
+                }
+              ]
+            },
+            toolCalls: [
+              {
+                callId: "c1",
+                toolName: "web_search_exa",
+                arguments: { query: "React 19" }
+              }
+            ],
+            stopReason: "tool_calls"
+          };
+        }
+        return {
+          assistantMessage: { role: "assistant", content: "done" },
+          toolCalls: [],
+          stopReason: "completed"
+        };
+      }
+    };
+    const recorder = new RecordingProvider(provider);
+    const runtime = new HarnessRuntime(
+      recorder,
+      [...createDefaultTools(), connectorTool],
+      {
+        cwd: dir,
+        maxTurns: 4,
+        allowGuardedTools: false,
+        systemPrompt: createDefaultSystemPrompt(),
+        tokenBudget: 900,
+        skillsHomeDir: join(dir, ".honey-test-home"),
+        sessionEventLog: false
+      }
+    );
+    const session = createHarnessSession(runtime);
+    const result = await session.runTurn("search the web for React 19");
+
+    expect(result.output).toContain("done");
+    expect(recorder.requests[0]?.tools.some((tool) => tool.name === "web_search_exa")).toBe(
+      true
+    );
+    const providerTool = recorder.requests
+      .flatMap((request) => request.messages)
+      .find((message) => message.role === "tool");
+    expect(providerTool?.role).toBe("tool");
+    if (providerTool?.role === "tool") {
+      expect(providerTool.content.length).toBeLessThan(connectorResult.length);
+      expect(providerTool.content).toMatch(/cleared refetchable web_search_exa/);
+    }
+  });
+
   it("loads read-only Project instructions into Root set", async () => {
     const dir = await makeFixtureDir();
     await writeFile(join(dir, "AGENTS.md"), "Prefer patch-first edits.", "utf8");

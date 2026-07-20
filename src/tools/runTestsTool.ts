@@ -9,6 +9,7 @@ export const runTestsTool: Tool = {
     name: "run_tests",
     description: "Run a test command inside the workspace.",
     risk: "guarded",
+    refetchable: true,
     inputSchema: {
       type: "object",
       properties: {

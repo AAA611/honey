@@ -64,6 +64,16 @@ export class HarnessRuntime {
     this.toolRegistry = new ToolRegistry(tools);
   }
 
+  refetchableToolNames(): Set<string> {
+    const names = new Set<string>();
+    for (const definition of this.toolRegistry.definitions()) {
+      if (definition.refetchable) {
+        names.add(definition.name);
+      }
+    }
+    return names;
+  }
+
   async run(userInput: string): Promise<HarnessRunResult> {
     const session = createHarnessSession(this);
     try {
@@ -189,7 +199,9 @@ export class HarnessSession {
     this.context = compactIfNeeded(
       this.context,
       this.plan,
-      this.runtime.config.tokenBudget
+      this.runtime.config.tokenBudget,
+      undefined,
+      this.runtime.refetchableToolNames()
     );
 
     logger.emit(
@@ -209,7 +221,9 @@ export class HarnessSession {
       this.context = compactIfNeeded(
         this.context,
         this.plan,
-        this.runtime.config.tokenBudget
+        this.runtime.config.tokenBudget,
+        undefined,
+        this.runtime.refetchableToolNames()
       );
       const assembledSystem = assembleSystemPrompt(this.context, this.plan);
       const assembledMessages = assembleProviderMessages(this.context);
@@ -326,7 +340,9 @@ export class HarnessSession {
       this.context = compactIfNeeded(
         this.context,
         this.plan,
-        this.runtime.config.tokenBudget
+        this.runtime.config.tokenBudget,
+        undefined,
+        this.runtime.refetchableToolNames()
       );
       state = transition(logger, turnId, state, "TOOL_RESULT");
     }

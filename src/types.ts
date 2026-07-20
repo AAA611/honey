@@ -10,13 +10,7 @@ export type HarnessState =
 
 export type ToolRisk = "safe" | "guarded" | "blocked";
 
-export type ToolName =
-  | "read_file"
-  | "search_workspace"
-  | "exec_command"
-  | "apply_patch"
-  | "run_tests"
-  | "run_skill_script";
+export type ToolName = string;
 
 export type EventType =
   | "session_started"
@@ -86,6 +80,8 @@ export interface ToolDefinition {
   description: string;
   risk: ToolRisk;
   inputSchema: Record<string, unknown>;
+  /** When true, Compaction may clear long results (re-invoke if needed). */
+  refetchable?: boolean;
 }
 
 export interface ToolExecutionContext {

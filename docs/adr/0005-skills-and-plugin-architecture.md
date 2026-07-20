@@ -9,6 +9,7 @@ Honey needs a Codex-aligned way to package reusable workflows without conflating
 - Discovery scopes: repo, user, and bundled. Dual roots `.agents/skills` and `.honey/skills`. Precedence: repo > user > bundled; within a scope `.honey` > `.agents`.
 - Scripts: dedicated `run_skill_script` Tool; package-relative paths only; approval by scope (bundled/repo follow guarded policy; user requires explicit confirm; unknown rejected).
 - Code lives under `src/skills/` with a `src/plugins/types.ts` placeholder. Plugin install and MCP bundling are out of scope for v1.
+- **Later note:** Harness-native MCP Connectors (not Plugin-bundled MCP) are specified in [ADR-0008](./0008-mcp-connectors-for-web-search.md); that does not reopen Plugin install.
 
 ## Considered Options
 

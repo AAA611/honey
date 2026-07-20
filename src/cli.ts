@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createInterface } from "node:readline/promises";
-import { cwd, env, stdin, stdout } from "node:process";
+import { cwd, env, stderr, stdin, stdout } from "node:process";
 import { resolve } from "node:path";
 import {
   isSkillPickerCommand,
@@ -10,6 +10,7 @@ import {
 } from "./cli/skillPicker.js";
 import { createCliRuntime, parseCliArgs } from "./cliConfig.js";
 import { defaultDumpPromptsDir } from "./context/promptDump.js";
+import { createRuntimeTools } from "./mcp/createRuntimeTools.js";
 import {
   createDefaultSystemPrompt,
   createHarnessSession,
@@ -17,7 +18,6 @@ import {
   type HarnessSession
 } from "./runtime/harness.js";
 import { formatSessionBanner } from "./sessionBanner.js";
-import { createDefaultTools } from "./tools/defaultTools.js";
 import { runSessionTui } from "./tui/runTui.js";
 import type { Provider } from "./types.js";
 
@@ -32,7 +32,7 @@ async function main() {
   }
 
   if (cli.prompt) {
-    const runtime = createRuntime(cli, "command");
+    const runtime = await createRuntime(cli, "command");
     const session = createHarnessSession(runtime);
     announceSessionEventLog(session);
     try {
@@ -44,7 +44,7 @@ async function main() {
     return;
   }
 
-  const runtime = createRuntime(cli, "repl");
+  const runtime = await createRuntime(cli, "repl");
   if (stdin.isTTY === true && stdout.isTTY === true) {
     await runTuiRepl(runtime);
   } else {
@@ -156,10 +156,11 @@ function writeSessionBanner() {
   );
 }
 
-function createRuntime(
+async function createRuntime(
   cli: {
     provider: Provider;
     allowGuardedTools: boolean;
+    mcp: boolean;
     dumpPrompts: boolean;
     dumpPromptsDir?: string;
     sessionEventLog: boolean;
@@ -167,7 +168,15 @@ function createRuntime(
   },
   sessionMode: "repl" | "command"
 ) {
-  return new HarnessRuntime(cli.provider, createDefaultTools(), {
+  const tools = await createRuntimeTools({
+    cwd: cwd(),
+    mcp: cli.mcp,
+    onWarning: (message) => {
+      stderr.write(`${message}\n`);
+    }
+  });
+
+  return new HarnessRuntime(cli.provider, tools, {
     cwd: cwd(),
     maxTurns: 4,
     allowGuardedTools: cli.allowGuardedTools,

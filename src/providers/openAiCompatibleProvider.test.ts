@@ -320,7 +320,7 @@ describe("OpenAiCompatibleProvider", () => {
     ).rejects.toThrow(/malformed tool arguments/);
   });
 
-  it("throws when the model requests an unknown tool", async () => {
+  it("accepts Connector tool names from the model", async () => {
     const provider = new OpenAiCompatibleProvider({
       name: "deepseek",
       apiKey: "test-key",
@@ -338,8 +338,8 @@ describe("OpenAiCompatibleProvider", () => {
                     id: "call_1",
                     type: "function",
                     function: {
-                      name: "drop_database",
-                      arguments: "{}"
+                      name: "web_search_exa",
+                      arguments: JSON.stringify({ query: "React 19" })
                     }
                   }
                 ]
@@ -349,13 +349,20 @@ describe("OpenAiCompatibleProvider", () => {
         })
     });
 
-    await expect(
-      provider.sendTurn({
-        systemPrompt: "sys",
-        messages: [{ role: "user", content: "hi" }],
-        tools: []
-      })
-    ).rejects.toThrow(/unknown tool/);
+    const response = await provider.sendTurn({
+      systemPrompt: "sys",
+      messages: [{ role: "user", content: "hi" }],
+      tools: [
+        {
+          name: "web_search_exa",
+          description: "Search",
+          risk: "safe",
+          inputSchema: { type: "object" }
+        }
+      ]
+    });
+
+    expect(response.toolCalls[0]?.toolName).toBe("web_search_exa");
   });
 });
 

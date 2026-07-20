@@ -10,10 +10,10 @@ import { estimateAssembledTokens } from "./assemble.js";
 const MAX_TOOL_RESULT_CHARS = 800;
 
 /**
- * 「可再读」的工具：结果丢掉也没关系，模型需要时可以再调一次。
- * 优先拿它们腾预算，而不是先砍对话。
+ * 「可再读」的内置工具：结果丢掉也没关系，模型需要时可以再调一次。
+ * Connector Tools mark `definition.refetchable` and are merged in by callers.
  */
-const REFETCHABLE_TOOLS = new Set([
+export const BUILTIN_REFETCHABLE_TOOLS = new Set([
   "read_file",
   "search_workspace",
   "run_tests"
@@ -62,13 +62,15 @@ export const deterministicSummaryWriter: SummaryWriter = {
  * @param plan - 当前 Plan；估 token 时要算进 Assembled prompt。
  * @param tokenBudget - 本会话允许的 Assembled prompt 上限。
  * @param summaryWriter - 把挤出的消息写成 Summary 的策略；默认确定性短摘要。
+ * @param refetchableTools - 可再读工具名；默认内置集合。
  * @returns 可能已减压的新 ContextLayers（含 compaction 状态标记）。
  */
 export function compactIfNeeded(
   layers: ContextLayers,
   plan: Plan | null,
   tokenBudget: number,
-  summaryWriter: SummaryWriter = deterministicSummaryWriter
+  summaryWriter: SummaryWriter = deterministicSummaryWriter,
+  refetchableTools: ReadonlySet<string> = BUILTIN_REFETCHABLE_TOOLS
 ): ContextLayers {
   let next: ContextLayers = {
     ...layers,
@@ -84,7 +86,7 @@ export function compactIfNeeded(
   }
 
   // 第一刀：腾可再读的工具结果（丢了还能再调工具拿回来）
-  next = clearRefetchableToolResults(next);
+  next = clearRefetchableToolResults(next, refetchableTools);
   next.compaction = { ...next.compaction, clearedTools: true };
 
   if (estimateAssembledTokens(next, plan) <= tokenBudget) {
@@ -101,12 +103,15 @@ export function compactIfNeeded(
  * - 可再读工具 + 内容很长：换成简短占位，提示模型需要时再读。
  * - 其它工具：不能假设能重跑，只截断到 {@link MAX_TOOL_RESULT_CHARS}。
  */
-function clearRefetchableToolResults(layers: ContextLayers): ContextLayers {
+function clearRefetchableToolResults(
+  layers: ContextLayers,
+  refetchableTools: ReadonlySet<string>
+): ContextLayers {
   const workingSet = layers.workingSet.map((message) => {
     if (message.role !== "tool") {
       return message;
     }
-    if (!REFETCHABLE_TOOLS.has(message.toolName)) {
+    if (!refetchableTools.has(message.toolName)) {
       return shrinkToolContent(message);
     }
     if (message.content.length <= MAX_TOOL_RESULT_CHARS) {

@@ -50,7 +50,9 @@ This repository contains a local CLI harness project for learning how Claude Cod
   _Avoid_: readline prompt, chat input (as a product name)
 - **Skill scope**: the discovery origin of a Skill — repo, user, or bundled — used for precedence and script-approval policy.
   _Avoid_: Plugin scope, Tool risk (as a substitute name for origin)
-- **Plugin**: an installable distribution unit that packages one or more Skills (and later may bundle connectors); not itself a layer in the Assembled prompt.
-  _Avoid_: Skill, Tool, MCP server (unless referring to a bundled connector)
+- **Plugin**: an installable distribution unit that packages one or more Skills (and later may bundle Connectors); not itself a layer in the Assembled prompt.
+  _Avoid_: Skill, Tool, Connector (as the runtime configuration surface — that is mcp.json / Harness MCP client)
+- **Connector**: a configured external tool provider that contributes Tools to the Harness over MCP (for example an HTTP MCP server entry in mcp.json); discovered Tools merge into the same Tool surface as built-in Tools when MCP is enabled for the Run.
+  _Avoid_: MCP server (as the product name for this concept), Plugin, built-in Tool, web_search (as a honey-owned Tool name — web search arrives as Connector-contributed Tools such as Exa's `web_search_exa`)
 
 This glossary is intentionally small and should grow only when a term becomes stable and necessary.

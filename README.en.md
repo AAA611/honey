@@ -75,6 +75,19 @@ If you want to understand where the seams are between Provider, Runtime, Tools, 
 - `run_tests`
 - `run_skill_script`
 
+### Connectors (MCP)
+
+- `--mcp` enables the Harness-native MCP client (orthogonal to `--allow-guarded-tools`)
+- Config: project `.honey/mcp.json` and user `~/.honey/mcp.json` (project wins on same name)
+- v1 is HTTP remote only (`url` plus optional `headers` / `tools` allowlist); stdio is deferred
+- Example: copy `examples/mcp.exa.json` to `.honey/mcp.json` for Exa `web_search_exa` (free tier may work without a key; on HTTP 429 add `x-api-key` in headers)
+- Name collisions: same-named Connector entries prefer project over user; duplicate tool names across Connectors keep the first registered (project Connectors before user) and warn+skip the rest; collisions with built-in Tools skip the Connector tool and warn
+
+```bash
+mkdir -p .honey && cp examples/mcp.exa.json .honey/mcp.json
+honey --mcp --provider deepseek "What is new in React 19?"
+```
+
 ### Skills
 
 - Skill filesystem packages (`SKILL.md` plus optional scripts / references)
@@ -234,6 +247,7 @@ src/
   context/               # layered context and summarization
   evals/                 # minimal eval entrypoint
   logging/               # structured event logging
+  mcp/                   # Connector config loading and MCP HTTP client
   planning/              # lightweight Plan state
   plugins/               # Plugin distribution placeholder types
   providers/             # Provider abstractions and scripted Provider
@@ -301,7 +315,8 @@ Planned next steps for the Harness:
 - higher-signal eval fixtures
 - better Session inspection and streaming UX
 - optional `--provider openai-compatible` CLI sugar on top of the existing adapter
-- Plugin install and MCP bundling (beyond the v1 Skill core loop)
+- Plugin install and MCP bundling (beyond the v1 Skill core loop; Harness-native Connectors are ADR-0008)
+- MCP stdio transport and resources/prompts
 
 ---
 

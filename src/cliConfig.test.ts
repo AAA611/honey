@@ -9,6 +9,7 @@ describe("CLI config seam", () => {
     expect(args).toEqual({
       provider: "scripted",
       allowGuardedTools: false,
+      mcp: false,
       dumpPrompts: false,
       dumpPromptsDir: undefined,
       sessionEventLog: true,
@@ -21,8 +22,22 @@ describe("CLI config seam", () => {
     const runtime = createCliRuntime(args, {});
     expect(runtime.provider).toBeInstanceOf(ScriptedProvider);
     expect(runtime.allowGuardedTools).toBe(false);
+    expect(runtime.mcp).toBe(false);
     expect(runtime.dumpPrompts).toBe(false);
     expect(runtime.sessionEventLog).toBe(true);
+  });
+
+  it("enables MCP Connectors with --mcp, orthogonal to guarded tools", () => {
+    const mcpOnly = createCliRuntime(parseCliArgs(["--mcp"]), {});
+    expect(mcpOnly.mcp).toBe(true);
+    expect(mcpOnly.allowGuardedTools).toBe(false);
+
+    const both = createCliRuntime(
+      parseCliArgs(["--mcp", "--allow-guarded-tools"]),
+      {}
+    );
+    expect(both.mcp).toBe(true);
+    expect(both.allowGuardedTools).toBe(true);
   });
 
   it("enables prompt dumps from flag or HONEY_DUMP_PROMPTS", () => {

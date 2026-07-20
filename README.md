@@ -75,6 +75,19 @@ Honey 瞄准中间地带：
 - `run_tests`
 - `run_skill_script`
 
+### Connectors (MCP)
+
+- `--mcp` 启用 Harness 原生 MCP 客户端（与 `--allow-guarded-tools` 正交）
+- 配置：项目 `.honey/mcp.json` 与用户 `~/.honey/mcp.json`（同名时项目优先）
+- v1 仅 HTTP remote（`url` + 可选 `headers` / `tools` 白名单）；stdio 暂不支持
+- 示例：复制 `examples/mcp.exa.json` 到 `.honey/mcp.json`，用 Exa 的 `web_search_exa` 做网页搜索（免费档可先不配 key；429 时在 headers 加 `x-api-key`）
+- 工具名冲突：同名 Connector 配置以项目为准；不同 Connector 贡献同名 tool 时保留先注册者（项目 Connector 优先于用户），并警告跳过后者；与内置 Tool 撞名则跳过 Connector tool 并警告
+
+```bash
+mkdir -p .honey && cp examples/mcp.exa.json .honey/mcp.json
+honey --mcp --provider deepseek "React 19 有什么新特性？"
+```
+
 ### Skills
 
 - Skill 文件系统包（`SKILL.md` + 可选 scripts / references）
@@ -234,6 +247,7 @@ src/
   context/               # 分层 context 与 summarization
   evals/                 # 最小 eval 入口
   logging/               # 结构化事件日志
+  mcp/                   # Connector 配置加载与 MCP HTTP 客户端
   planning/              # 轻量 Plan 状态
   plugins/               # Plugin 分发占位类型
   providers/             # Provider 抽象与 scripted Provider
@@ -301,7 +315,8 @@ Harness 下一步计划：
 - 更高信号的 eval fixture
 - 更好的 Session 检视与 streaming UX
 - 在现有 adapter 之上提供可选的 `--provider openai-compatible` CLI 糖
-- Plugin 安装与 MCP bundling（超出 v1 Skill 核心环）
+- Plugin 安装与 MCP bundling（超出 v1 Skill 核心环；Harness 原生 Connectors 见 ADR-0008）
+- MCP stdio transport 与 resources/prompts
 
 ---
 
