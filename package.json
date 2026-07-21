@@ -19,7 +19,7 @@
     "test": "vitest run",
     "eval": "node --enable-source-maps dist/evals/runEval.js",
     "start": "node --enable-source-maps dist/cli.js",
-    "start:deepseek": "node --enable-source-maps dist/cli.js --provider deepseek --dump-prompts",
+    "start:deepseek": "node --enable-source-maps dist/cli.js --provider deepseek --dump-prompts --mcp",
     "demo": "node --enable-source-maps dist/cli.js \"read: CONTEXT.md\""
   },
   "engines": {
