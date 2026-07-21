@@ -1,10 +1,13 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { ConversationMessage } from "../types.js";
+import { ThinkingIndicator } from "./ThinkingIndicator.js";
 
 export function TranscriptView(props: {
   messages: ConversationMessage[];
   notices: string[];
+  /** When true, show an animated thinking placeholder under the transcript. */
+  thinking?: boolean;
 }): React.ReactElement {
   return (
     <Box flexDirection="column">
@@ -24,7 +27,8 @@ export function TranscriptView(props: {
           <Text>{formatMessage(message)}</Text>
         </Box>
       ))}
-      {props.messages.length === 0 && props.notices.length === 0 ? (
+      {props.thinking ? <ThinkingIndicator /> : null}
+      {props.messages.length === 0 && props.notices.length === 0 && !props.thinking ? (
         <Text dimColor>
           Transcript is empty. Type a prompt, or `/` for commands and Skills.
         </Text>

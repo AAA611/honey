@@ -1,5 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { useSpinnerFrame } from "./ThinkingIndicator.js";
 
 export function StatusBar(props: {
   cwd: string;
@@ -7,6 +8,7 @@ export function StatusBar(props: {
   skillCount: number;
   messageCount: number;
 }): React.ReactElement {
+  const spinner = useSpinnerFrame(props.busy);
   return (
     <Box
       borderStyle="single"
@@ -16,7 +18,7 @@ export function StatusBar(props: {
     >
       <Text dimColor>
         honey tui · skills {props.skillCount} · messages {props.messageCount}
-        {props.busy ? " · running…" : ""}
+        {props.busy ? ` · ${spinner} running…` : ""}
       </Text>
       <Text dimColor>{truncate(props.cwd, 48)}</Text>
     </Box>

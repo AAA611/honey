@@ -229,6 +229,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
 
       setBusy(true);
       setValue("");
+      setMessages((current) => [...current, { role: "user", content: line }]);
       try {
         await props.session.runTurn(line);
         setMessages([...props.session.snapshot().transcript]);
@@ -451,7 +452,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         messageCount={messages.length}
       />
       <Box flexDirection="column" paddingX={1} marginY={1}>
-        <TranscriptView messages={messages} notices={notices} />
+        <TranscriptView messages={messages} notices={notices} thinking={busy} />
       </Box>
       {slashOpen ? (
         <SlashOverlay
