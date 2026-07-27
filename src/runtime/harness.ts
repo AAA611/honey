@@ -44,6 +44,7 @@ import type {
   ToolExecutionResult
 } from "../types.js";
 import { createApprovalRequest } from "./approval.js";
+import { checkToolCallWorkspaceBound } from "./workspaceBound.js";
 
 export class HarnessRuntime {
   readonly toolRegistry: ToolRegistry;
@@ -103,6 +104,32 @@ export class HarnessRuntime {
       };
     }
 
+    const workspaceBoundEnabled = this.config.workspaceBound !== false;
+    if (workspaceBoundEnabled) {
+      const bound = await checkToolCallWorkspaceBound({
+        cwd: this.config.cwd,
+        pathParams: tool.definition.pathParams,
+        arguments: toolCall.arguments
+      });
+      if (!bound.ok) {
+        const logger = options?.logger;
+        const turnId = options?.turnId ?? null;
+        logger?.emit(
+          "workspace_bound_rejected",
+          {
+            toolCall,
+            reason: bound.reason,
+            attemptedPath: bound.attemptedPath
+          },
+          turnId
+        );
+        return {
+          ok: false,
+          content: bound.reason
+        };
+      }
+    }
+
     if (tool.definition.risk === "guarded" && !this.config.allowGuardedTools) {
       const approvalRequest = createApprovalRequest(toolCall);
       const logger = options?.logger;
@@ -144,6 +171,7 @@ export class HarnessRuntime {
     try {
       return await tool.execute(toolCall.arguments, {
         cwd: this.config.cwd,
+        workspaceBound: this.config.workspaceBound !== false,
         skillRegistry: this.skillRegistry
       });
     } catch (error) {
@@ -479,6 +507,7 @@ function formatEnvironment(config: HarnessConfig): string {
   return [
     `cwd: ${config.cwd}`,
     `allowGuardedTools: ${config.allowGuardedTools}`,
+    `workspaceBound: ${config.workspaceBound !== false}`,
     `tokenBudget: ${config.tokenBudget}`
   ].join("\n");
 }
@@ -508,6 +537,7 @@ export function createDefaultSystemPrompt(): string {
     "Use tools through structured calls.",
     "Prefer reading before changing files.",
     "Respect safe, guarded, and blocked tool policy.",
+    "Path-taking Tools stay inside the Session cwd (Workspace bound) unless disabled.",
     "When a Skill in the catalog matches the Task, read its SKILL.md via read_file before following it.",
     "Run Skill packaged scripts only through run_skill_script."
   ].join(" ");

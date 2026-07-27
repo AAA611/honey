@@ -157,6 +157,7 @@ async function createRuntime(
   cli: {
     provider: Provider;
     allowGuardedTools: boolean;
+    workspaceBound: boolean;
     mcp: boolean;
     dumpPrompts: boolean;
     dumpPromptsDir?: string;
@@ -177,6 +178,7 @@ async function createRuntime(
     cwd: cwd(),
     maxTurns: 4,
     allowGuardedTools: cli.allowGuardedTools,
+    workspaceBound: cli.workspaceBound,
     systemPrompt: createDefaultSystemPrompt(),
     tokenBudget: 24_000,
     dumpPrompts: cli.dumpPrompts,

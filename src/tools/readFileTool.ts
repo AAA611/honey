@@ -1,12 +1,13 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { Tool } from "../types.js";
+import { resolveToolPath } from "../runtime/workspaceBound.js";
 
 export const readFileTool: Tool = {
   definition: {
     name: "read_file",
     description: "Read a UTF-8 file from the workspace.",
     risk: "safe",
+    pathParams: ["path"],
     refetchable: true,
     inputSchema: {
       type: "object",
@@ -17,7 +18,16 @@ export const readFileTool: Tool = {
     }
   },
   async execute(input, context) {
-    const path = resolve(context.cwd, String(input.path ?? ""));
+    const rawPath = String(input.path ?? "");
+    const pathResult = await resolveToolPath(
+      context.cwd,
+      rawPath,
+      context.workspaceBound
+    );
+    if (!pathResult.ok) {
+      return { ok: false, content: pathResult.reason };
+    }
+    const path = pathResult.absolutePath;
     const content = await readFile(path, "utf8");
     return {
       ok: true,

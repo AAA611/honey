@@ -24,6 +24,7 @@ export type EventType =
   | "tool_call"
   | "approval_requested"
   | "approval_decided"
+  | "workspace_bound_rejected"
   | "tool_result"
   | "turn_finished"
   | "run_finished"
@@ -91,12 +92,19 @@ export interface ToolDefinition {
   description: string;
   risk: ToolRisk;
   inputSchema: Record<string, unknown>;
+  /**
+   * Top-level argument keys that are filesystem paths subject to Workspace bound.
+   * Harness checks these before Approval / execute (ADR-0010).
+   */
+  pathParams?: string[];
   /** When true, Compaction may clear long results (re-invoke if needed). */
   refetchable?: boolean;
 }
 
 export interface ToolExecutionContext {
   cwd: string;
+  /** When false, path Tools skip Workspace bound (CLI `--no-workspace-bound`). Default true. */
+  workspaceBound?: boolean;
   skillRegistry?: SkillRegistry;
 }
 
@@ -203,6 +211,11 @@ export interface HarnessConfig {
   cwd: string;
   maxTurns: number;
   allowGuardedTools: boolean;
+  /**
+   * When true (default), pathParams on Tools are confined under Session cwd.
+   * Disable only via explicit `--no-workspace-bound` (orthogonal to allowGuardedTools).
+   */
+  workspaceBound?: boolean;
   systemPrompt: string;
   tokenBudget: number;
   /** Optional override for Skill discovery home directory (tests). */

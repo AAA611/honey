@@ -100,6 +100,7 @@ honey --mcp --provider deepseek "React 19 有什么新特性？"
 
 - Safe vs guarded Tool 分类
 - Session TUI / line REPL 对 guarded Tool 的交互式 Approval（Soft-deny；`--allow-guarded-tools` 为 bypass）
+- Workspace bound：path-taking Tools（含 safe `read_file`）经 realpath 限制在 Session cwd 内；先于 Approval；`--no-workspace-bound` 可关且与 guarded bypass 正交（不约束 `exec_command` 进程逃逸）
 - Patch-first 编辑模型
 - Skill 脚本与其它 guarded Tools 走同一 Approval 门闩
 

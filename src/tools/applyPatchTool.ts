@@ -1,12 +1,13 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import type { Tool } from "../types.js";
+import { resolveToolPath } from "../runtime/workspaceBound.js";
 
 export const applyPatchTool: Tool = {
   definition: {
     name: "apply_patch",
     description: "Apply a simple string replacement patch to a UTF-8 file.",
     risk: "guarded",
+    pathParams: ["path"],
     inputSchema: {
       type: "object",
       properties: {
@@ -18,7 +19,16 @@ export const applyPatchTool: Tool = {
     }
   },
   async execute(input, context) {
-    const path = resolve(context.cwd, String(input.path ?? ""));
+    const rawPath = String(input.path ?? "");
+    const pathResult = await resolveToolPath(
+      context.cwd,
+      rawPath,
+      context.workspaceBound
+    );
+    if (!pathResult.ok) {
+      return { ok: false, content: pathResult.reason };
+    }
+    const path = pathResult.absolutePath;
     const find = String(input.find ?? "");
     const replace = String(input.replace ?? "");
     const current = await readFile(path, "utf8");

@@ -609,6 +609,314 @@ FOLLOW_DEMO_SKILL
     );
   });
 
+  it("rejects path escape via Workspace bound before Approval", async () => {
+    const root = await makeFixtureDir();
+    const cwd = join(root, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(root, "secret.txt"), "outside", "utf8");
+    let approvalCalls = 0;
+    const runtime = createRuntime(
+      cwd,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "patch-escape",
+                toolName: "apply_patch",
+                arguments: {
+                  path: "../secret.txt",
+                  find: "outside",
+                  replace: "pwned"
+                }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Bound blocked the escape."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ]),
+      {
+        requestApproval: async () => {
+          approvalCalls += 1;
+          return true;
+        }
+      }
+    );
+
+    const result = await runtime.run("escape patch");
+    expect(result.finalState).toBe("DONE");
+    expect(await readFile(join(root, "secret.txt"), "utf8")).toBe("outside");
+    expect(approvalCalls).toBe(0);
+    expect(
+      result.events.some((event) => event.type === "workspace_bound_rejected")
+    ).toBe(true);
+    expect(result.events.some((event) => event.type === "approval_requested")).toBe(
+      false
+    );
+    const denied = result.events.find((event) => event.type === "tool_result");
+    expect(String((denied?.payload.toolResult as { content?: string })?.content)).toMatch(
+      /Workspace bound/i
+    );
+  });
+
+  it("rejects safe read_file escape via Workspace bound", async () => {
+    const root = await makeFixtureDir();
+    const cwd = join(root, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(root, "secret.txt"), "top-secret", "utf8");
+    const runtime = createRuntime(
+      cwd,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "read-escape",
+                toolName: "read_file",
+                arguments: { path: "../secret.txt" }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Could not read outside."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ])
+    );
+
+    const result = await runtime.run("read secret");
+    expect(result.finalState).toBe("DONE");
+    expect(
+      result.events.some((event) => event.type === "workspace_bound_rejected")
+    ).toBe(true);
+    const denied = result.events.find((event) => event.type === "tool_result");
+    expect(String((denied?.payload.toolResult as { content?: string })?.content)).toMatch(
+      /Workspace bound/i
+    );
+    expect(result.output).not.toContain("top-secret");
+  });
+
+  it("allows path escape only when Workspace bound is disabled", async () => {
+    const root = await makeFixtureDir();
+    const cwd = join(root, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(root, "secret.txt"), "top-secret", "utf8");
+    const runtime = createRuntime(
+      cwd,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "read-escape",
+                toolName: "read_file",
+                arguments: { path: "../secret.txt" }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Read outside with bound off."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ]),
+      { workspaceBound: false }
+    );
+
+    const result = await runtime.run("read secret");
+    expect(result.finalState).toBe("DONE");
+    expect(
+      result.events.some((event) => event.type === "workspace_bound_rejected")
+    ).toBe(false);
+    const toolResult = result.events.find((event) => event.type === "tool_result");
+    expect(toolResult?.payload.toolResult).toMatchObject({ ok: true });
+    expect(
+      String((toolResult?.payload.toolResult as { content?: string })?.content)
+    ).toContain("top-secret");
+  });
+
+  it("keeps Workspace bound when --allow-guarded-tools bypass is set", async () => {
+    const root = await makeFixtureDir();
+    const cwd = join(root, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(root, "secret.txt"), "outside", "utf8");
+    const runtime = createRuntime(
+      cwd,
+      true,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "patch-escape",
+                toolName: "apply_patch",
+                arguments: {
+                  path: "../secret.txt",
+                  find: "outside",
+                  replace: "pwned"
+                }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Still blocked."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ])
+    );
+
+    const result = await runtime.run("escape with guarded bypass");
+    expect(await readFile(join(root, "secret.txt"), "utf8")).toBe("outside");
+    expect(
+      result.events.some((event) => event.type === "workspace_bound_rejected")
+    ).toBe(true);
+  });
+
+  it("rejects array-shaped path args before Approval", async () => {
+    const root = await makeFixtureDir();
+    const cwd = join(root, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(root, "secret.txt"), "outside", "utf8");
+    let approvalCalls = 0;
+    const runtime = createRuntime(
+      cwd,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "patch-array-path",
+                toolName: "apply_patch",
+                arguments: {
+                  path: ["../secret.txt"],
+                  find: "outside",
+                  replace: "pwned"
+                }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Bound blocked array path."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ]),
+      {
+        requestApproval: async () => {
+          approvalCalls += 1;
+          return true;
+        }
+      }
+    );
+
+    const result = await runtime.run("array path escape");
+    expect(approvalCalls).toBe(0);
+    expect(
+      result.events.some((event) => event.type === "workspace_bound_rejected")
+    ).toBe(true);
+    expect(await readFile(join(root, "secret.txt"), "utf8")).toBe("outside");
+  });
+
+  it("does not follow out-of-workspace symlinks in search_workspace", async () => {
+    const root = await makeFixtureDir();
+    const cwd = join(root, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(root, "secret.txt"), "top-secret-marker", "utf8");
+    const { symlink } = await import("node:fs/promises");
+    await symlink(join(root, "secret.txt"), join(cwd, "leak.txt"));
+    const runtime = createRuntime(
+      cwd,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "search-escape",
+                toolName: "search_workspace",
+                arguments: { query: "top-secret-marker" }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Search done."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ])
+    );
+
+    const result = await runtime.run("search secret");
+    const toolResult = result.events.find((event) => event.type === "tool_result");
+    expect(
+      String((toolResult?.payload.toolResult as { content?: string })?.content)
+    ).not.toContain("leak.txt");
+    expect(result.output).not.toContain("top-secret-marker");
+  });
+
   it("can apply a guarded patch when approval is enabled", async () => {
     const dir = await makeFixtureDir();
     const filePath = join(dir, "editable.txt");

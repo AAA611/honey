@@ -9,6 +9,7 @@ describe("CLI config seam", () => {
     expect(args).toEqual({
       provider: "scripted",
       allowGuardedTools: false,
+      workspaceBound: true,
       mcp: false,
       dumpPrompts: false,
       dumpPromptsDir: undefined,
@@ -22,6 +23,7 @@ describe("CLI config seam", () => {
     const runtime = createCliRuntime(args, {});
     expect(runtime.provider).toBeInstanceOf(ScriptedProvider);
     expect(runtime.allowGuardedTools).toBe(false);
+    expect(runtime.workspaceBound).toBe(true);
     expect(runtime.mcp).toBe(false);
     expect(runtime.dumpPrompts).toBe(false);
     expect(runtime.sessionEventLog).toBe(true);
@@ -38,6 +40,26 @@ describe("CLI config seam", () => {
     );
     expect(both.mcp).toBe(true);
     expect(both.allowGuardedTools).toBe(true);
+  });
+
+  it("disables Workspace bound with --no-workspace-bound, orthogonal to guarded tools", () => {
+    const boundOff = createCliRuntime(parseCliArgs(["--no-workspace-bound"]), {});
+    expect(boundOff.workspaceBound).toBe(false);
+    expect(boundOff.allowGuardedTools).toBe(false);
+
+    const guardedOnBoundOn = createCliRuntime(
+      parseCliArgs(["--allow-guarded-tools"]),
+      {}
+    );
+    expect(guardedOnBoundOn.allowGuardedTools).toBe(true);
+    expect(guardedOnBoundOn.workspaceBound).toBe(true);
+
+    const both = createCliRuntime(
+      parseCliArgs(["--allow-guarded-tools", "--no-workspace-bound"]),
+      {}
+    );
+    expect(both.allowGuardedTools).toBe(true);
+    expect(both.workspaceBound).toBe(false);
   });
 
   it("enables prompt dumps from flag or HONEY_DUMP_PROMPTS", () => {

@@ -100,6 +100,7 @@ honey --mcp --provider deepseek "What is new in React 19?"
 
 - Safe vs guarded Tool classification
 - Interactive Approval for guarded Tools in Session TUI and line REPL (Soft-deny; `--allow-guarded-tools` bypass)
+- Workspace bound: path-taking Tools (including safe `read_file`) are realpath-confined under Session cwd; runs before Approval; `--no-workspace-bound` disables it and is orthogonal to the guarded bypass (does not confine `exec_command` process escape)
 - Patch-first editing model
 - Skill scripts run through the same guarded Approval gate as other Tools
 
