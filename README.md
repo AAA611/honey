@@ -129,7 +129,7 @@ honey --mcp --provider deepseek "React 19 有什么新特性？"
 
 Honey **当前不提供**：
 
-- 多 agent 编排
+- 多 agent 编排图 / DAG 并行编排产品（v1 仅有同 Session 嵌套 Subagent，见 ADR-0012）
 - 托管服务
 - 浏览器自动化
 - 长期记忆系统

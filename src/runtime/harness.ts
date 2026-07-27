@@ -47,6 +47,10 @@ import type {
   ToolExecutionResult
 } from "../types.js";
 import { createApprovalRequest } from "./approval.js";
+import {
+  formatSubagentResult,
+  SPAWN_SUBAGENT_TOOL_NAME
+} from "./subagent.js";
 import { checkToolCallWorkspaceBound } from "./workspaceBound.js";
 
 export class HarnessRuntime {
@@ -90,7 +94,11 @@ export class HarnessRuntime {
 
   async executeTool(
     toolCall: ToolCall,
-    options?: { logger?: EventLogger; turnId?: string | null }
+    options?: {
+      logger?: EventLogger;
+      turnId?: string | null;
+      runSubagent?: (prompt: string) => Promise<ToolExecutionResult>;
+    }
   ): Promise<ToolExecutionResult> {
     const tool = this.toolRegistry.get(toolCall.toolName);
     if (!tool) {
@@ -175,7 +183,8 @@ export class HarnessRuntime {
       return await tool.execute(toolCall.arguments, {
         cwd: this.config.cwd,
         workspaceBound: this.config.workspaceBound !== false,
-        skillRegistry: this.skillRegistry
+        skillRegistry: this.skillRegistry,
+        runSubagent: options?.runSubagent
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown tool failure";
@@ -389,7 +398,8 @@ export class HarnessSession {
         logger.emit("tool_call", { toolCall }, turnId);
         const toolResult = await this.runtime.executeTool(toolCall, {
           logger,
-          turnId
+          turnId,
+          runSubagent: (prompt) => this.runSubagent(prompt, logger)
         });
         logger.emit("tool_result", { toolCall, toolResult }, turnId);
         toolMessages.push({
@@ -428,6 +438,215 @@ export class HarnessSession {
     };
     this.history.push(result);
     return result;
+  }
+
+  /**
+   * Run a Subagent (nested Run) with an isolated Assembled prompt.
+   * Does not mutate the parent Transcript / Working set; returns a Subagent result.
+   */
+  async runSubagent(
+    prompt: string,
+    parentLogger: EventLogger
+  ): Promise<ToolExecutionResult> {
+    const childLogger = new EventLogger({
+      sessionId: this.sessionId,
+      parentRunId: parentLogger.runId,
+      onEmit: (event) => this.eventLog?.append(event)
+    });
+    const turnId = randomUUID();
+    const childTools = this.runtime.toolRegistry
+      .definitions()
+      .filter((definition) => definition.name !== SPAWN_SUBAGENT_TOOL_NAME);
+    const refetchable = new Set(
+      childTools.filter((definition) => definition.refetchable).map((d) => d.name)
+    );
+
+    childLogger.emit(
+      "subagent_started",
+      {
+        prompt,
+        parentRunId: parentLogger.runId,
+        runId: childLogger.runId
+      },
+      turnId
+    );
+    childLogger.emit(
+      "run_started",
+      {
+        provider: this.runtime.provider.name,
+        input: prompt,
+        nested: true,
+        parentRunId: parentLogger.runId
+      },
+      turnId
+    );
+
+    let context = createContextLayers({
+      system: this.runtime.config.systemPrompt,
+      projectInstructions: this.context.projectInstructions,
+      environment: this.context.environment,
+      skillCatalog: this.runtime.skillRegistry.catalogText(),
+      task: formatTask(prompt)
+    });
+    let plan: Plan = createInitialPlan(prompt);
+    childLogger.emit("plan_updated", { plan }, turnId);
+
+    const userMessage: ConversationMessage = {
+      role: "user",
+      content: prompt
+    };
+    context = appendWorkingMessages(context, [userMessage]);
+    context = compactIfNeeded(
+      context,
+      plan,
+      this.runtime.config.tokenBudget,
+      undefined,
+      refetchable
+    );
+
+    let state: HarnessState = "USER_INPUT";
+    let output = "";
+
+    for (let turn = 0; turn < this.runtime.config.maxTurns; turn += 1) {
+      state = transition(childLogger, turnId, state, "MODEL_TURN");
+      context = compactIfNeeded(
+        context,
+        plan,
+        this.runtime.config.tokenBudget,
+        undefined,
+        refetchable
+      );
+      const assembledSystem = assembleSystemPrompt(context, plan);
+      const assembledMessages = assembleProviderMessages(context);
+
+      childLogger.emit(
+        "model_request",
+        {
+          assembled: true,
+          nested: true,
+          task: context.task,
+          workingSetCount: context.workingSet.length,
+          tokenEstimate: createAssemblySnapshot(context, plan).tokenEstimate
+        },
+        turnId
+      );
+
+      let response;
+      try {
+        response = await this.runtime.provider.sendTurn({
+          systemPrompt: assembledSystem,
+          messages: assembledMessages,
+          tools: childTools
+        });
+      } catch (error: unknown) {
+        state = transition(childLogger, turnId, state, "ERROR");
+        output =
+          error instanceof Error ? error.message : `Provider error: ${String(error)}`;
+        childLogger.emit("error", { output }, turnId);
+        break;
+      }
+
+      childLogger.emit(
+        "model_response",
+        {
+          stopReason: response.stopReason,
+          toolCalls: response.toolCalls,
+          assistantMessage: response.assistantMessage?.content,
+          usage: response.usage
+        },
+        turnId
+      );
+
+      if (response.assistantMessage) {
+        context = appendWorkingMessages(context, [response.assistantMessage]);
+      }
+
+      if (response.stopReason === "completed" && response.assistantMessage) {
+        state = transition(childLogger, turnId, state, "DONE");
+        plan = markPlanStep(plan, "understand-request", "done");
+        plan = markPlanStep(plan, "use-tools", "done");
+        plan = markPlanStep(plan, "report", "done");
+        childLogger.emit("plan_updated", { plan }, turnId);
+        output = response.assistantMessage.content;
+        childLogger.emit("turn_finished", { output }, turnId);
+        break;
+      }
+
+      if (response.stopReason !== "tool_calls") {
+        state = transition(childLogger, turnId, state, "ERROR");
+        output = "Provider returned an unsupported stop reason.";
+        childLogger.emit("error", { output }, turnId);
+        break;
+      }
+
+      plan = markPlanStep(plan, "understand-request", "done");
+      plan = markPlanStep(plan, "use-tools", "in_progress");
+      childLogger.emit("plan_updated", { plan }, turnId);
+      state = transition(childLogger, turnId, state, "TOOL_DISPATCH");
+
+      const toolMessages: ConversationMessage[] = [];
+      for (const toolCall of response.toolCalls) {
+        childLogger.emit("tool_call", { toolCall }, turnId);
+        // Depth 1: do not pass runSubagent into nested Tool execution.
+        const toolResult = await this.runtime.executeTool(toolCall, {
+          logger: childLogger,
+          turnId
+        });
+        childLogger.emit("tool_result", { toolCall, toolResult }, turnId);
+        toolMessages.push({
+          role: "tool",
+          callId: toolCall.callId,
+          toolName: toolCall.toolName,
+          content: toolResult.content,
+          ok: toolResult.ok
+        });
+      }
+
+      context = appendWorkingMessages(context, toolMessages);
+      context = compactIfNeeded(
+        context,
+        plan,
+        this.runtime.config.tokenBudget,
+        undefined,
+        refetchable
+      );
+      state = transition(childLogger, turnId, state, "TOOL_RESULT");
+    }
+
+    if (state !== "DONE" && state !== "ERROR") {
+      state = transition(childLogger, turnId, state, "ERROR");
+      output = "Run stopped after reaching the max turn limit.";
+      childLogger.emit("error", { output }, turnId);
+    }
+
+    const status = state === "DONE" ? "completed" : "error";
+    const content = formatSubagentResult({
+      summary: output || "(empty Subagent output)",
+      status,
+      run_id: childLogger.runId
+    });
+
+    childLogger.emit(
+      "subagent_finished",
+      {
+        status,
+        runId: childLogger.runId,
+        parentRunId: parentLogger.runId,
+        summaryChars: content.length
+      },
+      turnId
+    );
+    childLogger.emit("run_finished", { finalState: state, output }, turnId);
+
+    return {
+      ok: status === "completed",
+      content,
+      metadata: {
+        runId: childLogger.runId,
+        parentRunId: parentLogger.runId,
+        status
+      }
+    };
   }
 
   formatContextInventory(): string {
@@ -568,7 +787,8 @@ export function createDefaultSystemPrompt(): string {
     "Respect safe, guarded, and blocked tool policy.",
     "Path-taking Tools stay inside the Session cwd (Workspace bound) unless disabled.",
     "When a Skill in the catalog matches the Task, read its SKILL.md via read_file before following it.",
-    "Run Skill packaged scripts only through run_skill_script."
+    "Run Skill packaged scripts only through run_skill_script.",
+    "For a self-contained subtask that should not pollute this Assembled prompt, delegate with spawn_subagent and a full prompt; the Subagent cannot spawn further Subagents."
   ].join(" ");
 }
 

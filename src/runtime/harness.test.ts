@@ -1209,6 +1209,295 @@ FOLLOW_DEMO_SKILL
     const diskRequest = diskEvents.find((event) => event.type === "model_request");
     expect(diskRequest?.payload?.promptDumpPath).toBe(requestEvent?.payload.promptDumpPath);
   });
+
+  it("spawns a Subagent with isolated context and structured Subagent result", async () => {
+    const dir = await makeFixtureDir();
+    await writeFile(join(dir, "secret-parent.txt"), "PARENT_ONLY", "utf8");
+    await writeFile(join(dir, "child-note.txt"), "child-ok", "utf8");
+    const recorder = new RecordingProvider(
+      new ScriptedProvider([
+        {
+          when: (request) => {
+            const last = request.messages.at(-1);
+            return (
+              last?.role === "user" &&
+              last.content.includes("delegate") &&
+              request.tools.some((tool) => tool.name === "spawn_subagent")
+            );
+          },
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "spawn-1",
+                toolName: "spawn_subagent",
+                arguments: { prompt: "read: child-note.txt" }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => {
+            const last = request.messages.at(-1);
+            return (
+              !request.tools.some((tool) => tool.name === "spawn_subagent") &&
+              last?.role === "user" &&
+              last.content.includes("read:")
+            );
+          },
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "child-read",
+                toolName: "read_file",
+                arguments: { path: "child-note.txt" }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) =>
+            !request.tools.some((tool) => tool.name === "spawn_subagent") &&
+            request.messages.at(-1)?.role === "tool",
+          response: (request) => {
+            const message = request.messages.at(-1);
+            return {
+              assistantMessage: {
+                role: "assistant",
+                content: `Tool result received:\n${message && message.role === "tool" ? message.content : ""}`
+              },
+              toolCalls: [],
+              stopReason: "completed"
+            };
+          }
+        },
+        {
+          when: (request) =>
+            request.tools.some((tool) => tool.name === "spawn_subagent") &&
+            request.messages.at(-1)?.role === "tool",
+          response: (request) => {
+            const message = request.messages.at(-1);
+            return {
+              assistantMessage: {
+                role: "assistant",
+                content: `Parent saw:\n${message && message.role === "tool" ? message.content : ""}`
+              },
+              toolCalls: [],
+              stopReason: "completed"
+            };
+          }
+        },
+        {
+          when: () => true,
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "noted PARENT_CHAT_MARKER in parent only"
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ])
+    );
+    const logDir = join(dir, "session-logs");
+    const session = createHarnessSession(
+      createRuntime(dir, true, recorder, {
+        sessionEventLog: true,
+        sessionEventLogDir: logDir
+      })
+    );
+
+    // Seed parent Transcript / Working set with content the child must not see.
+    session.snapshot();
+    await session.runTurn("remember PARENT_CHAT_MARKER");
+
+    const result = await session.runTurn("please delegate the child read");
+    expect(result.finalState).toBe("DONE");
+    expect(result.output).toContain("child-ok");
+    expect(result.output).toContain("run_id");
+    expect(result.output).not.toContain("PARENT_CHAT_MARKER");
+
+    const parentSpawnRequests = recorder.requests.filter((request) =>
+      request.tools.some((tool) => tool.name === "spawn_subagent")
+    );
+    const childRequests = recorder.requests.filter(
+      (request) => !request.tools.some((tool) => tool.name === "spawn_subagent")
+    );
+    expect(childRequests.length).toBeGreaterThan(0);
+    for (const request of childRequests) {
+      expect(request.tools.some((tool) => tool.name === "spawn_subagent")).toBe(
+        false
+      );
+      expect(
+        request.messages.some(
+          (message) =>
+            message.role === "user" && message.content.includes("PARENT_CHAT_MARKER")
+        )
+      ).toBe(false);
+      expect(request.systemPrompt).not.toContain("PARENT_CHAT_MARKER");
+    }
+
+    const parentTool = parentSpawnRequests
+      .flatMap((request) => request.messages)
+      .find(
+        (message) =>
+          message.role === "tool" && message.toolName === "spawn_subagent"
+      );
+    expect(parentTool?.role).toBe("tool");
+    if (parentTool?.role === "tool") {
+      const parsed = JSON.parse(parentTool.content) as {
+        summary: string;
+        status: string;
+        run_id: string;
+      };
+      expect(parsed.status).toBe("completed");
+      expect(parsed.summary).toContain("child-ok");
+      expect(parsed.run_id.length).toBeGreaterThan(0);
+      // Parent Working set must not contain the child's raw file body as a separate tool dump.
+      expect(parentTool.content).not.toContain("PARENT_ONLY");
+    }
+
+    const diskEvents = await readJsonl(session.sessionEventLogPath!);
+    const started = diskEvents.find((event) => event.type === "subagent_started");
+    const finished = diskEvents.find((event) => event.type === "subagent_finished");
+    expect(started?.parentRunId).toBeTruthy();
+    expect(finished?.parentRunId).toBe(started?.parentRunId);
+    expect(started?.runId).not.toBe(started?.parentRunId);
+    expect(finished?.payload?.status).toBe("completed");
+  });
+
+  it("requires Approval for spawn_subagent and child guarded Tools via the same callback", async () => {
+    const dir = await makeFixtureDir();
+    await writeFile(join(dir, "editable.txt"), "before", "utf8");
+    const approvals: string[] = [];
+    const provider = new ScriptedProvider([
+      {
+        when: (request) =>
+          request.messages.at(-1)?.role === "user" &&
+          request.tools.some((tool) => tool.name === "spawn_subagent"),
+        response: () => ({
+          toolCalls: [
+            {
+              callId: "spawn-1",
+              toolName: "spawn_subagent",
+              arguments: { prompt: "patch the file" }
+            }
+          ],
+          stopReason: "tool_calls"
+        })
+      },
+      {
+        when: (request) =>
+          !request.tools.some((tool) => tool.name === "spawn_subagent") &&
+          request.messages.at(-1)?.role === "user",
+        response: () => ({
+          toolCalls: [
+            {
+              callId: "child-patch",
+              toolName: "apply_patch",
+              arguments: {
+                path: "editable.txt",
+                find: "before",
+                replace: "after"
+              }
+            }
+          ],
+          stopReason: "tool_calls"
+        })
+      },
+      {
+        when: (request) =>
+          !request.tools.some((tool) => tool.name === "spawn_subagent") &&
+          request.messages.at(-1)?.role === "tool",
+        response: (request) => {
+          const message = request.messages.at(-1);
+          return {
+            assistantMessage: {
+              role: "assistant",
+              content: `child done: ${message && message.role === "tool" ? message.content : ""}`
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          };
+        }
+      },
+      {
+        when: (request) =>
+          request.tools.some((tool) => tool.name === "spawn_subagent") &&
+          request.messages.at(-1)?.role === "tool",
+        response: (request) => {
+          const message = request.messages.at(-1);
+          return {
+            assistantMessage: {
+              role: "assistant",
+              content: `parent done: ${message && message.role === "tool" ? message.content : ""}`
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          };
+        }
+      }
+    ]);
+    const runtime = createRuntime(dir, false, provider, {
+      requestApproval: async (request) => {
+        approvals.push(request.toolName);
+        return true;
+      }
+    });
+    const result = await runtime.run("delegate a patch");
+    expect(result.finalState).toBe("DONE");
+    expect(approvals).toEqual(["spawn_subagent", "apply_patch"]);
+    expect(await readFile(join(dir, "editable.txt"), "utf8")).toBe("after");
+  });
+
+  it("soft-denies spawn_subagent when Approval is refused", async () => {
+    const dir = await makeFixtureDir();
+    const runtime = createRuntime(
+      dir,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "spawn-1",
+                toolName: "spawn_subagent",
+                arguments: { prompt: "do anything" }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: (request) => {
+            const message = request.messages.at(-1);
+            return {
+              assistantMessage: {
+                role: "assistant",
+                content: `denied path: ${message && message.role === "tool" ? message.content : ""}`
+              },
+              toolCalls: [],
+              stopReason: "completed"
+            };
+          }
+        }
+      ]),
+      {
+        requestApproval: async () => false
+      }
+    );
+
+    const result = await runtime.run("try spawn");
+    expect(result.finalState).toBe("DONE");
+    expect(result.output).toContain("User denied Approval for spawn_subagent");
+    expect(result.events.some((event) => event.type === "subagent_started")).toBe(
+      false
+    );
+  });
 });
 
 async function readJsonl(path: string) {
@@ -1221,6 +1510,7 @@ async function readJsonl(path: string) {
       type: string;
       sessionId?: string;
       runId?: string;
+      parentRunId?: string;
       payload?: Record<string, unknown>;
     });
 }

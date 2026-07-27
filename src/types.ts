@@ -26,6 +26,8 @@ export type EventType =
   | "approval_decided"
   | "workspace_bound_rejected"
   | "tool_result"
+  | "subagent_started"
+  | "subagent_finished"
   | "turn_finished"
   | "run_finished"
   | "error";
@@ -106,6 +108,11 @@ export interface ToolExecutionContext {
   /** When false, path Tools skip Workspace bound (CLI `--no-workspace-bound`). Default true. */
   workspaceBound?: boolean;
   skillRegistry?: SkillRegistry;
+  /**
+   * Parent-Session callback that runs a Subagent (nested Run).
+   * Absent inside a Subagent so depth stays 1.
+   */
+  runSubagent?: (prompt: string) => Promise<ToolExecutionResult>;
 }
 
 export interface ToolExecutionResult {
@@ -192,6 +199,8 @@ export interface AssemblySnapshot {
 export interface HarnessEvent {
   timestamp: string;
   runId: string;
+  /** Present on nested Subagent events; links to the parent Run's runId. */
+  parentRunId?: string;
   sessionId?: string;
   turnId: string | null;
   type: EventType;

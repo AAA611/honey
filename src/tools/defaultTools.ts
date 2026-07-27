@@ -4,6 +4,7 @@ import { readFileTool } from "./readFileTool.js";
 import { runTestsTool } from "./runTestsTool.js";
 import { runSkillScriptTool } from "./runSkillScriptTool.js";
 import { searchWorkspaceTool } from "./searchWorkspaceTool.js";
+import { spawnSubagentTool } from "./spawnSubagentTool.js";
 import type { Tool } from "../types.js";
 
 export function createDefaultTools(): Tool[] {
@@ -13,6 +14,7 @@ export function createDefaultTools(): Tool[] {
     execCommandTool,
     applyPatchTool,
     runTestsTool,
-    runSkillScriptTool
+    runSkillScriptTool,
+    spawnSubagentTool
   ];
 }
