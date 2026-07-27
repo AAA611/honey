@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeKittyCsiUAction,
   isIncompleteKittyCsiU,
   isKittyCsiUInput,
   isKittyEncodedEscape,
   isSlashDismissKey,
-  pushKittyCsiFragment
+  pushKittyCsiFragment,
+  rewriteKittyCsiUChunk
 } from "./keys.js";
+import { splitComposerKeyAtoms } from "./useComposerInput.js";
 
 describe("isKittyEncodedEscape", () => {
   it("matches CSI-u Esc forms Ink passes after stripping leading ESC", () => {
@@ -104,5 +107,70 @@ describe("isSlashDismissKey", () => {
   it("does not treat plain letters as dismiss", () => {
     expect(isSlashDismissKey("c", { escape: false, ctrl: false })).toBe(false);
     expect(isSlashDismissKey("/", { escape: false, ctrl: false })).toBe(false);
+  });
+});
+
+describe("rewriteKittyCsiUChunk", () => {
+  it("rewrites Esc/Enter/Tab/Backspace CSI-u to legacy keys", () => {
+    expect(rewriteKittyCsiUChunk("\u001b[27u")).toEqual({
+      rewritten: "\u001b",
+      rest: ""
+    });
+    expect(rewriteKittyCsiUChunk("\u001b[13u")).toEqual({
+      rewritten: "\r",
+      rest: ""
+    });
+    expect(rewriteKittyCsiUChunk("\u001b[13;1:3u")).toEqual({
+      rewritten: "\r",
+      rest: ""
+    });
+    expect(rewriteKittyCsiUChunk("\u001b[9u")).toEqual({
+      rewritten: "\t",
+      rest: ""
+    });
+    expect(rewriteKittyCsiUChunk("\u001b[127u")).toEqual({
+      rewritten: "\x7f",
+      rest: ""
+    });
+  });
+
+  it("holds back an incomplete trailing CSI prefix", () => {
+    expect(rewriteKittyCsiUChunk("\u001b[")).toEqual({
+      rewritten: "",
+      rest: "\u001b["
+    });
+    expect(rewriteKittyCsiUChunk("\u001b[13")).toEqual({
+      rewritten: "",
+      rest: "\u001b[13"
+    });
+  });
+
+  it("does not hold a bare Esc", () => {
+    expect(rewriteKittyCsiUChunk("\u001b")).toEqual({
+      rewritten: "\u001b",
+      rest: ""
+    });
+  });
+});
+
+describe("decodeKittyCsiUAction", () => {
+  it("maps functional codepoints", () => {
+    expect(decodeKittyCsiUAction("[13u")).toBe("return");
+    expect(decodeKittyCsiUAction("[27;1:3u")).toBe("escape");
+    expect(decodeKittyCsiUAction("\u001b[9u")).toBe("tab");
+    expect(decodeKittyCsiUAction("abc")).toBeNull();
+  });
+});
+
+describe("splitComposerKeyAtoms", () => {
+  it("splits printable runs from control keys and maps LF to CR", () => {
+    expect(splitComposerKeyAtoms("ab\nc")).toEqual(["ab", "\r", "c"]);
+    expect(splitComposerKeyAtoms("\r")).toEqual(["\r"]);
+  });
+
+  it("keeps CSI arrow sequences intact", () => {
+    expect(splitComposerKeyAtoms("\u001b[D")).toEqual(["\u001b[D"]);
+    expect(splitComposerKeyAtoms("ab\u001b[C")).toEqual(["ab", "\u001b[C"]);
+    expect(splitComposerKeyAtoms("\u001b")).toEqual(["\u001b"]);
   });
 });

@@ -18,8 +18,7 @@ export function SlashOverlay(props: {
       marginBottom={1}
     >
       <Text color="cyan" bold>
-        /{props.query || "…"} — ↑↓ · Enter/Tab · Ctrl+G dismiss (Esc/Ctrl+[ if terminal
-        forwards it)
+        /{props.query || "…"} — ↑↓ · Enter/Tab · Esc dismiss
       </Text>
       {props.lastKeyDebug ? (
         <Text dimColor>last key: {props.lastKeyDebug}</Text>

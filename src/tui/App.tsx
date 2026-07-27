@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp } from "ink";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessRuntime, HarnessSession } from "../runtime/harness.js";
 import { formatApprovalPrompt } from "../runtime/approval.js";
+import type { ProjectInstructionsLoadResult } from "../context/projectInstructions.js";
 import type { ConversationMessage } from "../types.js";
 import { StatusBar } from "./StatusBar.js";
 import { SessionBannerView } from "./SessionBannerView.js";
@@ -17,14 +18,17 @@ import {
   type SlashItem
 } from "./slashItems.js";
 import {
+  decodeKittyCsiUAction,
   isKittyCsiUInput,
-  isSlashDismissKey,
-  pushKittyCsiFragment
+  isSlashDismissKey
 } from "./keys.js";
+import { useComposerInput } from "./useComposerInput.js";
 
 const KEYLOG_DIR = join(process.cwd(), ".honey");
 const KEYLOG_PATH = join(KEYLOG_DIR, "keylog.jsonl");
 const DEBUG_KEYS = process.env.HONEY_DEBUG_KEYS !== "0";
+/** Marker so re-running /context replaces the previous inventory notice. */
+const CONTEXT_NOTICE_MARKER = "[context inventory]";
 
 function formatKeyDebug(
   input: string,
@@ -69,10 +73,12 @@ function isUndecodedSlashDismissInput(
     tab: boolean;
     backspace: boolean;
     delete: boolean;
+    escape: boolean;
   }
 ): boolean {
   return (
     input === "" &&
+    !key.escape &&
     !key.ctrl &&
     !key.upArrow &&
     !key.downArrow &&
@@ -84,6 +90,7 @@ function isUndecodedSlashDismissInput(
     !key.delete
   );
 }
+
 export type SessionTuiProps = {
   runtime: HarnessRuntime;
   session: HarnessSession;
@@ -98,6 +105,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     "Session TUI ready. Type `/` for commands and Skills."
   ]);
   const [value, setValue] = useState("");
+  const [cursor, setCursor] = useState(0);
   const [busy, setBusy] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [approval, setApproval] = useState<null | {
@@ -116,9 +124,10 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     return filterSlashItems(buildSlashItems(skills), slashQuery);
   }, [skills, slashQuery]);
 
-  // Refs keep useInput stable so Esc/Ctrl+G are not dropped during resubscribe.
+  // Refs keep the input handler stable so Esc/Ctrl+G are not dropped on resubscribe.
   const stateRef = useRef({
     value,
+    cursor,
     busy,
     approval,
     slashOpen,
@@ -127,21 +136,17 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   });
   stateRef.current = {
     value,
+    cursor,
     busy,
     approval,
     slashOpen,
     slashItems,
     selectedIndex
   };
-  /** Reassembles Kitty CSI-u when stdin splits `\x1b[` from `27u`. */
-  const kittyCsiBufferRef = useRef("");
-  const kittyCsiTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const clearKittyCsiTimer = useCallback(() => {
-    if (kittyCsiTimerRef.current !== null) {
-      clearTimeout(kittyCsiTimerRef.current);
-      kittyCsiTimerRef.current = null;
-    }
+  const setComposerValue = useCallback((next: string, nextCursor = next.length) => {
+    setValue(next);
+    setCursor(Math.max(0, Math.min(nextCursor, next.length)));
   }, []);
 
   useEffect(() => {
@@ -158,24 +163,33 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       });
   }, [props.runtime]);
 
-  useEffect(() => () => clearKittyCsiTimer(), [clearKittyCsiTimer]);
+  const contextNoticeSeq = useRef(0);
+
+  const pushContextNotice = useCallback(() => {
+    contextNoticeSeq.current += 1;
+    const seq = contextNoticeSeq.current;
+    const inventory = props.session.formatContextInventory().trimEnd();
+    setNotices((current) => [
+      ...current.filter((notice) => !notice.includes(CONTEXT_NOTICE_MARKER)),
+      `${CONTEXT_NOTICE_MARKER} #${seq}\n${inventory}`
+    ]);
+  }, [props.session]);
 
   const dismissSlash = useCallback((wasOpen = stateRef.current.slashOpen) => {
-    clearKittyCsiTimer();
-    kittyCsiBufferRef.current = "";
     if (wasOpen) {
       logKeyDebug(JSON.stringify({ t: Date.now(), event: "slash-dismiss" }));
     }
-    setValue("");
+    setComposerValue("");
     setSelectedIndex(0);
-  }, [clearKittyCsiTimer]);
+  }, [setComposerValue]);
+
   const applySlashItem = useCallback(
     async (item: SlashItem, currentValue: string): Promise<void> => {
       if (item.kind === "skill") {
-        setValue(insertSkillMention(currentValue, item.skillName));
+        setComposerValue(insertSkillMention(currentValue, item.skillName));
         return;
       }
-      setValue("");
+      setComposerValue("");
       if (item.id === "exit") {
         props.session.end();
         exit();
@@ -188,13 +202,18 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         return;
       }
       if (item.id === "context") {
+        pushContextNotice();
+        return;
+      }
+      if (item.id === "reload-instructions") {
+        const loaded = props.session.reloadProjectInstructions();
         setNotices((current) => [
           ...current,
-          props.session.formatContextInventory().trimEnd()
+          formatReloadNotice(loaded)
         ]);
       }
     },
-    [exit, props.session]
+    [exit, props.session, pushContextNotice, setComposerValue]
   );
 
   const submit = useCallback(
@@ -213,15 +232,18 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         props.session.clear();
         setMessages([]);
         setNotices(["Session cleared."]);
-        setValue("");
+        setComposerValue("");
         return;
       }
       if (line === "/context" || line === "context") {
-        setNotices((current) => [
-          ...current,
-          props.session.formatContextInventory().trimEnd()
-        ]);
-        setValue("");
+        pushContextNotice();
+        setComposerValue("");
+        return;
+      }
+      if (line === "/reload-instructions" || line === "reload-instructions") {
+        const loaded = props.session.reloadProjectInstructions();
+        setNotices((current) => [...current, formatReloadNotice(loaded)]);
+        setComposerValue("");
         return;
       }
       if (line === "/" || line === "/skills") {
@@ -229,7 +251,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       }
 
       setBusy(true);
-      setValue("");
+      setComposerValue("");
       setMessages((current) => [...current, { role: "user", content: line }]);
       try {
         await props.session.runTurn(line);
@@ -241,7 +263,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         setBusy(false);
       }
     },
-    [exit, props.session]
+    [exit, props.session, pushContextNotice, setComposerValue]
   );
 
   const onInput = useCallback(
@@ -251,8 +273,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       ctrl: boolean;
       upArrow: boolean;
       downArrow: boolean;
-      leftArrow?: boolean;
-      rightArrow?: boolean;
+      leftArrow: boolean;
+      rightArrow: boolean;
       return: boolean;
       tab: boolean;
       backspace: boolean;
@@ -265,6 +287,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           t: Date.now(),
           slashOpen: current.slashOpen,
           value: current.value,
+          cursor: current.cursor,
           input,
           escape: key.escape,
           ctrl: key.ctrl,
@@ -280,63 +303,34 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         })
       );
 
-      // Bare Esc clears any half-read CSI fragment.
-      if (key.escape) {
-        clearKittyCsiTimer();
-        kittyCsiBufferRef.current = "";
-      }
-
-      // Kitty CSI-u may arrive split (`[` then `27;1:3u`). Reassemble before
-      // treating input as printable — otherwise Composer becomes `/[27u` and
-      // the overlay filters to nothing (Esc "fails" + skills unselectable).
+      // Safety net: CSI-u that slipped past rewrite (e.g. stripped `[13u`).
       let effectiveInput = input;
-      const assembled = pushKittyCsiFragment(
-        kittyCsiBufferRef.current,
-        input,
-        { bufferLoneBracket: current.slashOpen }
-      );
-      kittyCsiBufferRef.current = assembled.buffer;
-      if (assembled.buffer.length > 0 && assembled.completed === null) {
-        // Incomplete CSI — wait for more bytes, but never block nav/edit keys.
-        if (
-          key.upArrow ||
-          key.downArrow ||
-          key.return ||
-          key.tab ||
-          key.backspace ||
-          key.delete ||
-          key.escape ||
-          (key.ctrl && (input === "c" || input === "g" || input === "G"))
-        ) {
-          clearKittyCsiTimer();
-          kittyCsiBufferRef.current = "";
-          effectiveInput = input;
-        } else {
-          // Esc often arrives as `\x1b[` with no follow-up in some hosts.
-          // If we're still sitting on a lone `[` shortly after, treat as dismiss.
-          clearKittyCsiTimer();
-          if (current.slashOpen && assembled.buffer === "[") {
-            kittyCsiTimerRef.current = setTimeout(() => {
-              if (kittyCsiBufferRef.current === "[") {
-                logKeyDebug(
-                  JSON.stringify({
-                    t: Date.now(),
-                    event: "csi-bracket-timeout-dismiss"
-                  })
-                );
-                dismissSlash();
-              }
-            }, 40);
-          }
-          return;
-        }
-      } else if (assembled.completed !== null) {
-        clearKittyCsiTimer();
-        effectiveInput = assembled.completed;
+      let effectiveReturn = key.return;
+      let effectiveTab = key.tab;
+      let effectiveEscape = key.escape;
+      let effectiveBackspace = key.backspace;
+      const kittyAction = decodeKittyCsiUAction(input);
+      if (kittyAction === "return") {
+        effectiveInput = "";
+        effectiveReturn = true;
+      } else if (kittyAction === "tab") {
+        effectiveInput = "";
+        effectiveTab = true;
+      } else if (kittyAction === "escape") {
+        effectiveInput = "";
+        effectiveEscape = true;
+      } else if (kittyAction === "backspace") {
+        effectiveInput = "";
+        effectiveBackspace = true;
+      } else if (kittyAction === "ignore") {
+        return;
       }
 
-      // Ink sets key.escape for bare Esc; Kitty CSI-u Esc is handled via input.
-      const isDismiss = isSlashDismissKey(effectiveInput, key);
+      const isDismiss = isSlashDismissKey(effectiveInput, {
+        escape: effectiveEscape,
+        ctrl: key.ctrl,
+        meta: key.meta
+      });
 
       if (current.approval) {
         if (effectiveInput.toLowerCase() === "y") {
@@ -347,7 +341,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         if (
           effectiveInput.toLowerCase() === "n" ||
           isDismiss ||
-          key.return ||
+          effectiveReturn ||
           (key.ctrl && effectiveInput === "c")
         ) {
           current.approval.resolve(false);
@@ -380,13 +374,19 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         // Esc / Ctrl+G / Ctrl+C dismiss the overlay (Ctrl+C does not exit while open).
         if (
           isDismiss ||
-          isUndecodedSlashDismissInput(effectiveInput, key) ||
+          isUndecodedSlashDismissInput(effectiveInput, {
+            ...key,
+            escape: effectiveEscape,
+            return: effectiveReturn,
+            tab: effectiveTab,
+            backspace: effectiveBackspace
+          }) ||
           (key.ctrl && effectiveInput === "c")
         ) {
           dismissSlash();
           return;
         }
-        if (key.tab || (key.return && current.slashItems.length > 0)) {
+        if (effectiveTab || (effectiveReturn && current.slashItems.length > 0)) {
           const item =
             current.slashItems[
               Math.min(current.selectedIndex, current.slashItems.length - 1)
@@ -398,7 +398,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         }
       }
 
-      if (key.return) {
+      if (effectiveReturn) {
         void submit(current.value);
         return;
       }
@@ -408,13 +408,36 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         return;
       }
 
+      if (key.leftArrow) {
+        setCursor((c) => Math.max(0, c - 1));
+        return;
+      }
+      if (key.rightArrow) {
+        setCursor((c) => Math.min(current.value.length, c + 1));
+        return;
+      }
+
       // Kitty CSI-u that Ink didn't decode (Esc already handled) — never type it.
       if (isKittyCsiUInput(effectiveInput)) {
         return;
       }
 
-      if (key.backspace || key.delete) {
-        setValue((text) => text.slice(0, -1));
+      if (effectiveBackspace || key.delete) {
+        if (key.delete) {
+          if (current.cursor < current.value.length) {
+            const next =
+              current.value.slice(0, current.cursor) +
+              current.value.slice(current.cursor + 1);
+            setComposerValue(next, current.cursor);
+          }
+          return;
+        }
+        if (current.cursor > 0) {
+          const next =
+            current.value.slice(0, current.cursor - 1) +
+            current.value.slice(current.cursor);
+          setComposerValue(next, current.cursor - 1);
+        }
         return;
       }
 
@@ -430,18 +453,26 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         effectiveInput !== "\x1b"
       ) {
         // Note: do not gate on key.meta — Ink marks Escape as meta=true.
-        setValue((text) => `${text}${effectiveInput}`);
+        const next =
+          current.value.slice(0, current.cursor) +
+          effectiveInput +
+          current.value.slice(current.cursor);
+        setComposerValue(next, current.cursor + effectiveInput.length);
       }
     },
-    [applySlashItem, clearKittyCsiTimer, dismissSlash, exit, submit]
+    [applySlashItem, dismissSlash, exit, setComposerValue, submit]
   );
 
-  useInput(onInput);
+  useComposerInput(onInput);
 
   const overlayIndex =
     slashItems.length === 0
       ? 0
       : Math.min(selectedIndex, slashItems.length - 1);
+
+  const before = value.slice(0, cursor);
+  const at = cursor < value.length ? value.charAt(cursor) : " ";
+  const after = cursor < value.length ? value.slice(cursor + 1) : "";
 
   return (
     <Box flexDirection="column" width="100%">
@@ -470,11 +501,33 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         ) : (
           <>
             {/* Sibling Text avoids Ink #867 nested-cursor wrap on 0→1 length. */}
-            <Text>{value}</Text>
-            {busy ? null : <Text inverse> </Text>}
+            <Text>{before}</Text>
+            {busy ? (
+              <Text>
+                {cursor < value.length ? at : ""}
+                {after}
+              </Text>
+            ) : (
+              <>
+                <Text inverse>{at}</Text>
+                <Text>{after}</Text>
+              </>
+            )}
           </>
         )}
       </Box>
     </Box>
   );
+}
+
+function formatReloadNotice(loaded: ProjectInstructionsLoadResult): string {
+  const user = loaded.sources.user?.path ?? "(none)";
+  const project = loaded.sources.project?.path ?? "(none)";
+  const truncated = loaded.truncated ? "yes" : "no";
+  return [
+    "Reloaded Project instructions.",
+    `  user: ${user}`,
+    `  project: ${project}`,
+    `  truncated: ${truncated}`
+  ].join("\n");
 }

@@ -7,6 +7,14 @@ export type ComposerKeyFlags = {
   escape: boolean;
   ctrl: boolean;
   meta?: boolean;
+  return?: boolean;
+  tab?: boolean;
+  backspace?: boolean;
+  delete?: boolean;
+  upArrow?: boolean;
+  downArrow?: boolean;
+  leftArrow?: boolean;
+  rightArrow?: boolean;
 };
 
 /**
@@ -16,6 +24,20 @@ export type ComposerKeyFlags = {
  */
 const KITTY_CSI_U = /^\[(\d+)(?:;([\d:]*))?u$/;
 
+/** Full CSI-u including leading ESC (raw stdin chunk). */
+const KITTY_CSI_U_RAW = /\u001b\[(\d+)(?:;[\d:]*)?u/g;
+
+/** Trailing incomplete CSI-u prefix in a raw chunk (`\x1b`, `\x1b[`, `\x1b[27;1`). */
+const KITTY_CSI_U_RAW_INCOMPLETE =
+  /\u001b(?:\[\d*(?:;[\d:]*)?)?$/;
+
+export type KittyCsiUAction =
+  | "escape"
+  | "return"
+  | "tab"
+  | "backspace"
+  | "ignore";
+
 export function parseKittyCsiU(
   input: string
 ): { codepoint: number; params: string } | null {
@@ -24,6 +46,81 @@ export function parseKittyCsiU(
     return null;
   }
   return { codepoint: Number(match[1]), params: match[2] ?? "" };
+}
+
+/** Map a Kitty functional codepoint to a Composer action. */
+export function kittyCodepointAction(codepoint: number): KittyCsiUAction {
+  switch (codepoint) {
+    case 27:
+      return "escape";
+    case 13:
+      return "return";
+    case 9:
+      return "tab";
+    case 127:
+      return "backspace";
+    default:
+      return "ignore";
+  }
+}
+
+/**
+ * Decode a CSI-u payload (with or without leading ESC) into an action.
+ * Returns null when the string is not CSI-u.
+ */
+export function decodeKittyCsiUAction(input: string): KittyCsiUAction | null {
+  const trimmed = input.startsWith("\u001b") ? input.slice(1) : input;
+  const parsed = parseKittyCsiU(trimmed);
+  if (!parsed) {
+    return null;
+  }
+  return kittyCodepointAction(parsed.codepoint);
+}
+
+function legacyKeyForCodepoint(codepoint: number): string {
+  switch (kittyCodepointAction(codepoint)) {
+    case "escape":
+      return "\u001b";
+    case "return":
+      return "\r";
+    case "tab":
+      return "\t";
+    case "backspace":
+      return "\x7f";
+    case "ignore":
+      return "";
+  }
+}
+
+/**
+ * Rewrite complete Kitty CSI-u sequences in a raw stdin chunk to legacy keys
+ * so Ink's parseKeypress does not mis-read them (bare `[13u` sets ctrl=true and
+ * leaves input undefined, which crashes useInput on `input.startsWith`).
+ */
+export function rewriteKittyCsiUChunk(chunk: string): {
+  rewritten: string;
+  rest: string;
+} {
+  let rest = "";
+  let body = chunk;
+  const incomplete = KITTY_CSI_U_RAW_INCOMPLETE.exec(chunk);
+  if (incomplete && incomplete.index !== undefined) {
+    // Only hold back a trailing incomplete prefix; completed sequences rewrite.
+    const hold = incomplete[0];
+    // A lone trailing ESC might be a complete Esc key — only hold if it looks
+    // like the start of CSI (`\x1b[`...) or a short `\x1b` that may gain `[`.
+    if (hold === "\u001b") {
+      // Bare Esc is complete; do not buffer it.
+    } else {
+      rest = hold;
+      body = chunk.slice(0, incomplete.index);
+    }
+  }
+
+  const rewritten = body.replace(KITTY_CSI_U_RAW, (_match, code: string) =>
+    legacyKeyForCodepoint(Number(code))
+  );
+  return { rewritten, rest };
 }
 
 /** True for any Kitty CSI-u key Ink failed to decode (must not type into Composer). */
