@@ -245,6 +245,44 @@ FOLLOW_DEMO_SKILL
     expect(recorder.requests[0]?.systemPrompt).toContain("Prefer patch-first edits.");
   });
 
+  it("does not inject CONTEXT.md as Project instructions", async () => {
+    const dir = await makeFixtureDir();
+    await writeFile(join(dir, "CONTEXT.md"), "glossary-only", "utf8");
+    const recorder = new RecordingProvider(new ScriptedProvider());
+    const session = createHarnessSession(createRuntime(dir, false, recorder));
+
+    await session.runTurn("hello");
+
+    expect(session.snapshot().context.projectInstructions).not.toContain(
+      "glossary-only"
+    );
+    expect(recorder.requests[0]?.systemPrompt).not.toContain("glossary-only");
+  });
+
+  it("reloads Project instructions via reloadProjectInstructions", async () => {
+    const dir = await makeFixtureDir();
+    const home = join(dir, ".honey-test-home");
+    await mkdir(join(home, ".honey"), { recursive: true });
+    await writeFile(join(dir, "AGENTS.md"), "v1-project", "utf8");
+    const session = createHarnessSession(createRuntime(dir));
+
+    expect(session.snapshot().context.projectInstructions).toContain("v1-project");
+
+    await writeFile(join(dir, "AGENTS.md"), "v2-project", "utf8");
+    await writeFile(join(home, ".honey", "AGENTS.md"), "v2-user", "utf8");
+    const loaded = session.reloadProjectInstructions();
+
+    expect(loaded.sources.project?.path).toBe(join(dir, "AGENTS.md"));
+    expect(loaded.sources.user?.path).toBe(join(home, ".honey", "AGENTS.md"));
+    expect(session.snapshot().context.projectInstructions).toContain("v2-project");
+    expect(session.snapshot().context.projectInstructions).toContain("v2-user");
+
+    const inventory = session.formatContextInventory();
+    expect(inventory).toContain(join(dir, "AGENTS.md"));
+    expect(inventory).toContain(join(home, ".honey", "AGENTS.md"));
+    expect(inventory).toMatch(/truncated: no/);
+  });
+
   it("compacts oversized tool results before summarizing under a tight token budget", async () => {
     const dir = await makeFixtureDir();
     const huge = "X".repeat(4000);

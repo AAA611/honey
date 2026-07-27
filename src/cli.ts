@@ -112,6 +112,22 @@ async function runLineRepl(runtime: HarnessRuntime) {
         continue;
       }
 
+      if (line === "reload-instructions" || line === "/reload-instructions") {
+        const loaded = session.reloadProjectInstructions();
+        const user = loaded.sources.user?.path ?? "(none)";
+        const project = loaded.sources.project?.path ?? "(none)";
+        stdout.write(
+          [
+            "Reloaded Project instructions.",
+            `  user: ${user}`,
+            `  project: ${project}`,
+            `  truncated: ${loaded.truncated ? "yes" : "no"}`,
+            ""
+          ].join("\n")
+        );
+        continue;
+      }
+
       if (isSkillPickerCommand(line)) {
         const picked = await pickSkill({
           skills: runtime.skillRegistry.list(),

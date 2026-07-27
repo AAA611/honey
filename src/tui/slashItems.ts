@@ -1,6 +1,6 @@
 import type { SkillManifest } from "../skills/types.js";
 
-export type SlashCommandId = "context" | "clear" | "exit";
+export type SlashCommandId = "context" | "reload-instructions" | "clear" | "exit";
 
 export type SlashItem =
   | {
@@ -26,6 +26,11 @@ const BUILTIN_COMMANDS: Array<{
     id: "context",
     label: "/context",
     description: "Show Context inventory for the current Session"
+  },
+  {
+    id: "reload-instructions",
+    label: "/reload-instructions",
+    description: "Reload Project instructions from AGENTS.md sources"
   },
   {
     id: "clear",

@@ -10,7 +10,10 @@ import { compactIfNeeded } from "../context/compact.js";
 import { formatContextInventory } from "../context/inventory.js";
 import { appendWorkingMessages, createContextLayers } from "../context/layers.js";
 import { autoPinFromUserInput } from "../context/pin.js";
-import { loadProjectInstructions } from "../context/projectInstructions.js";
+import {
+  loadProjectInstructions,
+  type ProjectInstructionsLoadResult
+} from "../context/projectInstructions.js";
 import {
   defaultDumpPromptsDir,
   dumpAssembledPrompt
@@ -190,14 +193,16 @@ export class HarnessSession {
   private plan: Plan | null = null;
   private readonly history: HarnessRunResult[] = [];
   private readonly assemblySnapshots: AssemblySnapshot[] = [];
+  private projectInstructionsMeta: ProjectInstructionsLoadResult;
   readonly sessionId = randomUUID();
   private dumpSequence = 0;
   private readonly eventLog: SessionEventLog | null;
 
   constructor(private readonly runtime: HarnessRuntime) {
+    this.projectInstructionsMeta = this.loadInstructions();
     this.context = createContextLayers({
       system: this.runtime.config.systemPrompt,
-      projectInstructions: loadProjectInstructions(this.runtime.config.cwd),
+      projectInstructions: this.projectInstructionsMeta.text,
       environment: formatEnvironment(this.runtime.config),
       skillCatalog: this.runtime.skillRegistry.catalogText()
     });
@@ -429,8 +434,25 @@ export class HarnessSession {
     return formatContextInventory(
       this.context,
       this.plan,
-      this.runtime.config.tokenBudget
+      this.runtime.config.tokenBudget,
+      {
+        sources: this.projectInstructionsMeta.sources,
+        truncated: this.projectInstructionsMeta.truncated
+      }
     );
+  }
+
+  /**
+   * Re-run Project instructions discovery and replace the Root set layer.
+   * Does not clear Transcript / Plan / Working set.
+   */
+  reloadProjectInstructions(): ProjectInstructionsLoadResult {
+    this.projectInstructionsMeta = this.loadInstructions();
+    this.context = {
+      ...this.context,
+      projectInstructions: this.projectInstructionsMeta.text
+    };
+    return this.projectInstructionsMeta;
   }
 
   clear(): void {
@@ -446,6 +468,13 @@ export class HarnessSession {
       skillCatalog: this.runtime.skillRegistry.catalogText()
     });
     this.eventLog?.clear();
+  }
+
+  private loadInstructions(): ProjectInstructionsLoadResult {
+    return loadProjectInstructions({
+      cwd: this.runtime.config.cwd,
+      homeDir: this.runtime.config.skillsHomeDir
+    });
   }
 
   end(): void {

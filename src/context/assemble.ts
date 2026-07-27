@@ -20,7 +20,7 @@ import { estimateMessageTokens, estimateTokens } from "./tokens.js";
  * 只拼 **Root set**（每轮必带、Compaction 后仍在的层），按固定顺序拼接：
  *
  * 1. System — 运行时基座人格/规则
- * 2. Project instructions — 仓库指导（如 AGENTS.md / CONTEXT.md）
+ * 2. Project instructions — 仓库指导（AGENTS.md；见 ADR-0011）
  * 3. Task — 当前用户目标与验收口径
  * 4. Plan — 步骤进度（状态列表，不是验收替代品）
  * 5. Environment — cwd、平台等会话环境事实

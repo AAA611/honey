@@ -17,8 +17,10 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **Transcript**: the durable turn-by-turn message log kept by the Session for continuity and inspection; never sent to the Provider as-is.
   _Avoid_: conversation (when meaning the Provider payload), chat history
 - **Environment**: session-scoped facts about the execution setting (for example cwd, platform, or policy summary) injected into the Assembled prompt.
-- **Project instructions**: read-only repository guidance loaded at Session start (for example `AGENTS.md` or `CONTEXT.md`) and re-injected as part of the Root set; not a writable long-term memory system.
-  _Avoid_: long-term memory, auto-memory, CLAUDE.md clone as a product feature name
+- **Project instructions**: read-only guidance loaded at Session start from `AGENTS.md` only. Discovery uses Instruction sources: user layer is winner-take-all among `~/.honey/AGENTS.md` then fallback `~/.agents/AGENTS.md`; project layer is `<cwd>/AGENTS.md`. When both layers exist, concatenate user then project into the Root set. A single merged char budget applies; if over budget, truncate to preserve the project layer (spill/cut the user layer first). Mid-Session changes to those files are not picked up automatically; `/reload-instructions` re-reads discovery and replaces the Project instructions layer. `CONTEXT.md` remains the domain glossary and is not auto-injected as Project instructions.
+  _Avoid_: long-term memory, auto-memory, CLAUDE.md clone as a product feature name; treating CONTEXT.md as Project instructions content; project-then-user merge as the default; concatenating both user roots when `.honey` and `.agents` both exist; naive tail truncation of the merge that drops project before user; per-file-only caps without a merged budget; per-Turn automatic disk reread
+- **Instruction source**: a resolved origin of Project instructions content for the current Session — `user` or `project` — always with the concrete file path that won discovery (or none). Distinct from Skill scope.
+  _Avoid_: Skill scope, Plugin scope, workspace root
 - **Pinned artifact**: an excerpt or instruction fragment retained across Turns and re-injected after Compaction, outside ordinary Working set rotation. It may be established by Harness policy or by an explicit model request, always under Harness quotas.
   _Avoid_: attachment (unless referring to a product-specific injection mechanism), RAG hit
 - **Working set**: the recent dialogue and tool I/O layer inside the Assembled prompt for the current Turn.
@@ -31,8 +33,8 @@ This repository contains a local CLI harness project for learning how Claude Cod
 - **Session**: one interactive terminal conversation started by launching `honey`, preserving Transcript, context layers, Plan, and event continuity until the user exits.
 - **Session event log**: the Session-scoped durable append-only record of structured HarnessEvents persisted for inspection and replay; distinct from Transcript and from optional Assembled prompt dumps.
   _Avoid_: chat log, conversation dump, prompt dump (as the name of this artifact)
-- **Context inventory**: the Session-visible breakdown of Assembled prompt layers, token estimates, Compaction status, and Root set membership; may also be persisted per Turn as a structural snapshot for later inspection.
-  _Avoid_: raw prompt dump as the only observability surface
+- **Context inventory**: the Session-visible breakdown of Assembled prompt layers, token estimates, Compaction status, and Root set membership; for Project instructions it also lists the resolved user/project `AGENTS.md` sources and whether merged truncation applied; may also be persisted per Turn as a structural snapshot for later inspection.
+  _Avoid_: raw prompt dump as the only observability surface; token-only Project instructions line with no resolved source paths
 - **REPL mode**: the interactive terminal mode entered by running `honey` with no prompt argument, using single-line input and repeated turns.
 - **Command mode**: the one-shot CLI mode entered by running `honey "<prompt>"`, executing a single request and exiting.
 - **Bin entrypoint**: the packaged executable command exposed as `honey` through npm's `bin` field.

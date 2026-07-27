@@ -1,11 +1,18 @@
 import type { ContextLayers, Plan } from "../types.js";
+import type { ProjectInstructionsSources } from "./projectInstructions.js";
 import { estimateAssembledTokens } from "./assemble.js";
 import { estimateTokens } from "./tokens.js";
+
+export interface ProjectInstructionsInventoryMeta {
+  sources: ProjectInstructionsSources;
+  truncated: boolean;
+}
 
 export function formatContextInventory(
   layers: ContextLayers,
   plan: Plan | null,
-  tokenBudget: number
+  tokenBudget: number,
+  projectInstructionsMeta?: ProjectInstructionsInventoryMeta
 ): string {
   const total = estimateAssembledTokens(layers, plan);
   const lines = [
@@ -16,6 +23,7 @@ export function formatContextInventory(
     "Root set:",
     `  System: ${estimateTokens(layers.system)} tokens`,
     `  Project instructions: ${estimateTokens(layers.projectInstructions)} tokens`,
+    ...formatProjectInstructionsSources(projectInstructionsMeta),
     `  Task: ${preview(layers.task)}`,
     `  Plan: ${plan ? `${plan.steps.length} steps (${plan.goal})` : "(none)"}`,
     `  Environment: ${preview(layers.environment)}`,
@@ -32,6 +40,19 @@ export function formatContextInventory(
   ];
 
   return `${lines.join("\n")}\n`;
+}
+
+function formatProjectInstructionsSources(
+  meta: ProjectInstructionsInventoryMeta | undefined
+): string[] {
+  if (!meta) {
+    return [];
+  }
+  return [
+    `    user: ${meta.sources.user?.path ?? "(none)"}`,
+    `    project: ${meta.sources.project?.path ?? "(none)"}`,
+    `    truncated: ${meta.truncated ? "yes" : "no"}`
+  ];
 }
 
 function preview(value: string): string {
