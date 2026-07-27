@@ -375,6 +375,240 @@ FOLLOW_DEMO_SKILL
     expect(snapshot.context.task).toBe("");
   });
 
+  it("soft-denies a guarded tool when Approval is refused", async () => {
+    const dir = await makeFixtureDir();
+    const filePath = join(dir, "editable.txt");
+    await writeFile(filePath, "before", "utf8");
+    let approvalCalls = 0;
+    const runtime = createRuntime(
+      dir,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "patch-call",
+                toolName: "apply_patch",
+                arguments: {
+                  path: "editable.txt",
+                  find: "before",
+                  replace: "after"
+                }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Patch was denied."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ]),
+      {
+        requestApproval: async () => {
+          approvalCalls += 1;
+          return false;
+        }
+      }
+    );
+
+    const result = await runtime.run("change file");
+    const updated = await readFile(filePath, "utf8");
+
+    expect(result.finalState).toBe("DONE");
+    expect(updated).toBe("before");
+    expect(approvalCalls).toBe(1);
+    expect(result.output).toContain("denied");
+    expect(result.events.some((event) => event.type === "approval_requested")).toBe(
+      true
+    );
+    expect(result.events.some((event) => event.type === "approval_decided")).toBe(
+      true
+    );
+    const decided = result.events.find((event) => event.type === "approval_decided");
+    expect(decided?.payload.allowed).toBe(false);
+    const denied = result.events.find((event) => event.type === "tool_result");
+    expect(denied?.payload.toolResult).toMatchObject({
+      ok: false
+    });
+    expect(String((denied?.payload.toolResult as { content?: string })?.content)).toMatch(
+      /denied|Approval/i
+    );
+  });
+
+  it("soft-denies guarded tools in Command mode when no Approval host is wired", async () => {
+    const dir = await makeFixtureDir();
+    const filePath = join(dir, "editable.txt");
+    await writeFile(filePath, "before", "utf8");
+    const runtime = createRuntime(
+      dir,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "patch-call",
+                toolName: "apply_patch",
+                arguments: {
+                  path: "editable.txt",
+                  find: "before",
+                  replace: "after"
+                }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Could not patch without Approval."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ])
+    );
+
+    const result = await runtime.run("change file");
+    expect(result.finalState).toBe("DONE");
+    expect(await readFile(filePath, "utf8")).toBe("before");
+    const denied = result.events.find((event) => event.type === "tool_result");
+    expect(String((denied?.payload.toolResult as { content?: string })?.content)).toContain(
+      "requires Approval"
+    );
+  });
+
+  it("runs a guarded tool when interactive Approval allows it", async () => {
+    const dir = await makeFixtureDir();
+    const filePath = join(dir, "editable.txt");
+    await writeFile(filePath, "before", "utf8");
+    const runtime = createRuntime(
+      dir,
+      false,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "patch-call",
+                toolName: "apply_patch",
+                arguments: {
+                  path: "editable.txt",
+                  find: "before",
+                  replace: "after"
+                }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Patch applied."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ]),
+      {
+        requestApproval: async (request) => {
+          expect(request.toolName).toBe("apply_patch");
+          expect(request.argumentSummary).toContain("editable.txt");
+          return true;
+        }
+      }
+    );
+
+    const result = await runtime.run("change file");
+    const updated = await readFile(filePath, "utf8");
+
+    expect(result.finalState).toBe("DONE");
+    expect(updated).toBe("after");
+    expect(result.events.some((event) => event.type === "approval_requested")).toBe(
+      true
+    );
+    expect(result.events.some((event) => event.type === "approval_decided")).toBe(
+      true
+    );
+    const decided = result.events.find((event) => event.type === "approval_decided");
+    expect(decided?.payload.allowed).toBe(true);
+  });
+
+  it("skips Approval when --allow-guarded-tools bypass is set", async () => {
+    const dir = await makeFixtureDir();
+    const filePath = join(dir, "editable.txt");
+    await writeFile(filePath, "before", "utf8");
+    let approvalCalls = 0;
+    const runtime = createRuntime(
+      dir,
+      true,
+      new ScriptedProvider([
+        {
+          when: (request) => request.messages.at(-1)?.role === "user",
+          response: () => ({
+            toolCalls: [
+              {
+                callId: "patch-call",
+                toolName: "apply_patch",
+                arguments: {
+                  path: "editable.txt",
+                  find: "before",
+                  replace: "after"
+                }
+              }
+            ],
+            stopReason: "tool_calls"
+          })
+        },
+        {
+          when: (request) => request.messages.at(-1)?.role === "tool",
+          response: () => ({
+            assistantMessage: {
+              role: "assistant",
+              content: "Patch applied."
+            },
+            toolCalls: [],
+            stopReason: "completed"
+          })
+        }
+      ]),
+      {
+        requestApproval: async () => {
+          approvalCalls += 1;
+          return false;
+        }
+      }
+    );
+
+    const result = await runtime.run("change file");
+    expect(result.finalState).toBe("DONE");
+    expect(await readFile(filePath, "utf8")).toBe("after");
+    expect(approvalCalls).toBe(0);
+    expect(result.events.some((event) => event.type === "approval_requested")).toBe(
+      false
+    );
+  });
+
   it("can apply a guarded patch when approval is enabled", async () => {
     const dir = await makeFixtureDir();
     const filePath = join(dir, "editable.txt");

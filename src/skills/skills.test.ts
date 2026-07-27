@@ -7,7 +7,6 @@ import { discoverSkills } from "./discover.js";
 import { parseSkillMarkdown } from "./parse.js";
 import { SkillRegistry } from "./registry.js";
 import {
-  evaluateSkillScriptApproval,
   resolveSkillScriptPath,
   runSkillScript
 } from "./runScript.js";
@@ -112,7 +111,7 @@ description: Demo skill for parsing
     expect(mention.strippedInput).toBe("please add tests");
   });
 
-  it("rejects script path escape and enforces approval by scope", async () => {
+  it("rejects script path escape and runs package-relative scripts", async () => {
     const root = await makeTemp();
     const skillDir = join(root, "pack");
     await mkdir(join(skillDir, "scripts"), { recursive: true });
@@ -137,28 +136,6 @@ description: Demo skill for parsing
     expect(resolveSkillScriptPath(skill, "/etc/passwd").ok).toBe(false);
     const resolved = resolveSkillScriptPath(skill, "scripts/ok.sh");
     expect(resolved.ok).toBe(true);
-
-    expect(
-      evaluateSkillScriptApproval({
-        scope: "repo",
-        allowGuardedTools: false,
-        userConfirmed: false
-      }).ok
-    ).toBe(false);
-    expect(
-      evaluateSkillScriptApproval({
-        scope: "user",
-        allowGuardedTools: true,
-        userConfirmed: false
-      }).ok
-    ).toBe(false);
-    expect(
-      evaluateSkillScriptApproval({
-        scope: "user",
-        allowGuardedTools: false,
-        userConfirmed: true
-      }).ok
-    ).toBe(true);
 
     if (resolved.ok) {
       const result = await runSkillScript({

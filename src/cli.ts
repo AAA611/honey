@@ -17,6 +17,7 @@ import {
   HarnessRuntime,
   type HarnessSession
 } from "./runtime/harness.js";
+import { formatApprovalPrompt } from "./runtime/approval.js";
 import { formatSessionBanner } from "./sessionBanner.js";
 import { runSessionTui } from "./tui/runTui.js";
 import type { Provider } from "./types.js";
@@ -70,12 +71,8 @@ async function runLineRepl(runtime: HarnessRuntime) {
     output: stdout
   });
 
-  runtime.config.confirmSkillScript = async (request) => {
-    const answer = (
-      await rl.question(
-        `Run user Skill script ${request.skillName}:${request.script}? [y/N] `
-      )
-    )
+  runtime.config.requestApproval = async (request) => {
+    const answer = (await rl.question(`${formatApprovalPrompt(request)} `))
       .trim()
       .toLowerCase();
     return answer === "y" || answer === "yes";

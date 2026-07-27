@@ -21,13 +21,6 @@ export interface SkillManifest {
   references: string[];
 }
 
-export interface SkillScriptRequest {
-  skillName: string;
-  script: string;
-  scope: SkillScope;
-  absolutePath: string;
-}
-
 export interface DiscoverSkillsOptions {
   cwd: string;
   homeDir?: string;

@@ -99,9 +99,9 @@ honey --mcp --provider deepseek "React 19 有什么新特性？"
 ### Guardrails
 
 - Safe vs guarded Tool 分类
-- 运行时可关闭 guarded Tool 执行
+- Session TUI / line REPL 对 guarded Tool 的交互式 Approval（Soft-deny；`--allow-guarded-tools` 为 bypass）
 - Patch-first 编辑模型
-- Skill 脚本按 Skill scope 审批（bundled / repo / user）
+- Skill 脚本与其它 guarded Tools 走同一 Approval 门闩
 
 ### Context
 
@@ -310,7 +310,7 @@ npm run eval
 
 Harness 下一步计划：
 
-- 更丰富的 guarded 审批流
+- 更丰富的 Approval UX（Session 记忆 / 永久 allowlist）
 - 更强的 patch 格式与编辑校验
 - 更高信号的 eval fixture
 - 更好的 Session 检视与 streaming UX

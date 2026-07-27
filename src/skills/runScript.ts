@@ -1,11 +1,7 @@
 import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { resolve, sep } from "node:path";
-import type { SkillManifest, SkillScope, SkillScriptRequest } from "./types.js";
-
-export type SkillScriptApproval =
-  | { ok: true }
-  | { ok: false; reason: string; needsConfirm?: boolean };
+import type { SkillManifest } from "./types.js";
 
 export function resolveSkillScriptPath(
   skill: SkillManifest,
@@ -37,35 +33,6 @@ export function resolveSkillScriptPath(
   }
 
   return { ok: true, absolutePath, relativePath: normalized };
-}
-
-export function evaluateSkillScriptApproval(input: {
-  scope: SkillScope;
-  allowGuardedTools: boolean;
-  userConfirmed: boolean;
-}): SkillScriptApproval {
-  if (input.scope === "bundled" || input.scope === "repo") {
-    if (!input.allowGuardedTools) {
-      return {
-        ok: false,
-        reason: `Guarded Skill script from ${input.scope} requires allowGuardedTools`
-      };
-    }
-    return { ok: true };
-  }
-
-  if (input.scope === "user") {
-    if (!input.userConfirmed) {
-      return {
-        ok: false,
-        reason: "User-scoped Skill script requires explicit confirmation",
-        needsConfirm: true
-      };
-    }
-    return { ok: true };
-  }
-
-  return { ok: false, reason: `Unknown Skill scope: ${String(input.scope)}` };
 }
 
 export async function runSkillScript(input: {
@@ -118,17 +85,4 @@ export async function runSkillScript(input: {
       });
     });
   });
-}
-
-export function toScriptRequest(
-  skill: SkillManifest,
-  script: string,
-  absolutePath: string
-): SkillScriptRequest {
-  return {
-    skillName: skill.name,
-    script,
-    scope: skill.scope,
-    absolutePath
-  };
 }

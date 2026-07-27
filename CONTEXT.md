@@ -48,11 +48,13 @@ This repository contains a local CLI harness project for learning how Claude Cod
   _Avoid_: Harness UI, web UI
 - **Composer**: the Session TUI keystroke-level input box where the user edits the next message and triggers `/` filtering.
   _Avoid_: readline prompt, chat input (as a product name)
-- **Skill scope**: the discovery origin of a Skill — repo, user, or bundled — used for precedence and script-approval policy.
-  _Avoid_: Plugin scope, Tool risk (as a substitute name for origin)
+- **Skill scope**: the discovery origin of a Skill — repo, user, or bundled — used for precedence when discovering Skills.
+  _Avoid_: Plugin scope, Tool risk (as a substitute name for origin); script-approval policy (guarded Skill scripts use Harness Approval)
 - **Plugin**: an installable distribution unit that packages one or more Skills (and later may bundle Connectors); not itself a layer in the Assembled prompt.
   _Avoid_: Skill, Tool, Connector (as the runtime configuration surface — that is mcp.json / Harness MCP client)
 - **Connector**: a configured external tool provider that contributes Tools to the Harness over MCP (for example an HTTP MCP server entry in mcp.json); discovered Tools merge into the same Tool surface as built-in Tools when MCP is enabled for the Run.
   _Avoid_: MCP server (as the product name for this concept), Plugin, built-in Tool, web_search (as a honey-owned Tool name — web search arrives as Connector-contributed Tools such as Exa's `web_search_exa`)
+- **Approval**: the Harness-owned pause before executing a guarded Tool call, where the user allows or denies that specific call and the Turn then continues with the result. Scope v1: per-call interactive gate for all guarded Tools via one Harness callback (absorbs the former user Skill-script `confirmSkillScript` special case). Surfaces: Session TUI and line REPL; Command mode stays non-interactive and relies on `--allow-guarded-tools` bypass. When that flag is set, guarded Tools auto-allow and skip Approval. Deny is soft: return a failed Tool result and let the Turn continue (do not abort the Run). The Approval prompt shows the Tool name plus a truncated argument summary (not a full diff/review UI). Approval decisions are first-class Session event log entries (distinct from ordinary `tool_result`), so the pause-and-decide moment is visible on the Session timeline. When a model response contains multiple guarded Tool calls, Approval is sequential: ask and resolve each call in dispatch order before moving to the next.
+  _Avoid_: advanced approval workflow, allowlist product; do not conflate Approval with the `--allow-guarded-tools` bypass flag; do not keep a parallel confirmSkillScript path; hard-stop on deny; full-diff Approval UX; folding Approval solely into `tool_result` with no dedicated events; batch-first or fail-fast-batch Approval UI
 
 This glossary is intentionally small and should grow only when a term becomes stable and necessary.

@@ -22,6 +22,8 @@ export type EventType =
   | "model_request"
   | "model_response"
   | "tool_call"
+  | "approval_requested"
+  | "approval_decided"
   | "tool_result"
   | "turn_finished"
   | "run_finished"
@@ -36,6 +38,15 @@ export interface ToolCall {
   callId: string;
   toolName: ToolName;
   arguments: Record<string, unknown>;
+}
+
+/** Payload for the Harness Approval pause before a guarded Tool call. */
+export interface ApprovalRequest {
+  toolName: ToolName;
+  callId: string;
+  arguments: Record<string, unknown>;
+  /** Truncated Name+args summary for host prompts. */
+  argumentSummary: string;
 }
 
 export interface AssistantMessage {
@@ -86,14 +97,7 @@ export interface ToolDefinition {
 
 export interface ToolExecutionContext {
   cwd: string;
-  allowGuardedTools?: boolean;
   skillRegistry?: SkillRegistry;
-  confirmSkillScript?: (request: {
-    skillName: string;
-    script: string;
-    scope: "repo" | "user" | "bundled";
-    absolutePath: string;
-  }) => Promise<boolean>;
 }
 
 export interface ToolExecutionResult {
@@ -205,8 +209,11 @@ export interface HarnessConfig {
   skillsHomeDir?: string;
   /** Optional override for bundled Skills directory (tests). */
   bundledSkillsDir?: string;
-  /** Confirm user-scoped Skill scripts (REPL). Defaults to deny. */
-  confirmSkillScript?: ToolExecutionContext["confirmSkillScript"];
+  /**
+   * Host callback for interactive Approval of guarded Tool calls.
+   * When unset and `--allow-guarded-tools` is off, guarded calls Soft-deny.
+   */
+  requestApproval?: (request: ApprovalRequest) => Promise<boolean>;
   /** When true, write each Assembled prompt to dumpPromptsDir before Provider send. */
   dumpPrompts?: boolean;
   /** Absolute or cwd-relative directory for prompt dumps. Defaults to `<cwd>/.honey/prompt-dumps`. */

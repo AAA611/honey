@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessRuntime, HarnessSession } from "../runtime/harness.js";
+import { formatApprovalPrompt } from "../runtime/approval.js";
 import type { ConversationMessage } from "../types.js";
 import { StatusBar } from "./StatusBar.js";
 import { SessionBannerView } from "./SessionBannerView.js";
@@ -99,7 +100,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [confirm, setConfirm] = useState<null | {
+  const [approval, setApproval] = useState<null | {
     prompt: string;
     resolve: (ok: boolean) => void;
   }>(null);
@@ -107,7 +108,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
 
   const skills = props.runtime.skillRegistry.list();
   const slashQuery = getSlashQuery(value);
-  const slashOpen = slashQuery !== null && !busy && !confirm;
+  const slashOpen = slashQuery !== null && !busy && !approval;
   const slashItems = useMemo(() => {
     if (slashQuery === null) {
       return [] as SlashItem[];
@@ -119,7 +120,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   const stateRef = useRef({
     value,
     busy,
-    confirm,
+    approval,
     slashOpen,
     slashItems,
     selectedIndex
@@ -127,7 +128,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   stateRef.current = {
     value,
     busy,
-    confirm,
+    approval,
     slashOpen,
     slashItems,
     selectedIndex
@@ -148,10 +149,10 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   }, [slashQuery, slashItems.length]);
 
   useEffect(() => {
-    props.runtime.config.confirmSkillScript = async (request) =>
+    props.runtime.config.requestApproval = async (request) =>
       await new Promise<boolean>((resolve) => {
-        setConfirm({
-          prompt: `Run user Skill script ${request.skillName}:${request.script}? [y/N]`,
+        setApproval({
+          prompt: formatApprovalPrompt(request),
           resolve
         });
       });
@@ -337,10 +338,10 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       // Ink sets key.escape for bare Esc; Kitty CSI-u Esc is handled via input.
       const isDismiss = isSlashDismissKey(effectiveInput, key);
 
-      if (current.confirm) {
+      if (current.approval) {
         if (effectiveInput.toLowerCase() === "y") {
-          current.confirm.resolve(true);
-          setConfirm(null);
+          current.approval.resolve(true);
+          setApproval(null);
           return;
         }
         if (
@@ -349,8 +350,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           key.return ||
           (key.ctrl && effectiveInput === "c")
         ) {
-          current.confirm.resolve(false);
-          setConfirm(null);
+          current.approval.resolve(false);
+          setApproval(null);
         }
         return;
       }
@@ -464,8 +465,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       ) : null}
       <Box borderStyle="single" borderColor={busy ? "yellow" : "green"} paddingX={1}>
         <Text color="green">honey› </Text>
-        {confirm ? (
-          <Text color="yellow">{confirm.prompt}</Text>
+        {approval ? (
+          <Text color="yellow">{approval.prompt}</Text>
         ) : (
           <>
             {/* Sibling Text avoids Ink #867 nested-cursor wrap on 0→1 length. */}

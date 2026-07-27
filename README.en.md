@@ -99,9 +99,9 @@ honey --mcp --provider deepseek "What is new in React 19?"
 ### Guardrails
 
 - Safe vs guarded Tool classification
-- Guarded Tool execution can be disabled at runtime
+- Interactive Approval for guarded Tools in Session TUI and line REPL (Soft-deny; `--allow-guarded-tools` bypass)
 - Patch-first editing model
-- Skill script approval by Skill scope (bundled / repo / user)
+- Skill scripts run through the same guarded Approval gate as other Tools
 
 ### Context
 
@@ -310,7 +310,7 @@ npm run eval
 
 Planned next steps for the Harness:
 
-- richer guarded approval flows
+- richer Approval UX (session remember / permanent allowlists)
 - stronger patch formats and edit validation
 - higher-signal eval fixtures
 - better Session inspection and streaming UX

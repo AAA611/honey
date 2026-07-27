@@ -43,6 +43,7 @@ import type {
   ToolCall,
   ToolExecutionResult
 } from "../types.js";
+import { createApprovalRequest } from "./approval.js";
 
 export class HarnessRuntime {
   readonly toolRegistry: ToolRegistry;
@@ -83,7 +84,10 @@ export class HarnessRuntime {
     }
   }
 
-  async executeTool(toolCall: ToolCall): Promise<ToolExecutionResult> {
+  async executeTool(
+    toolCall: ToolCall,
+    options?: { logger?: EventLogger; turnId?: string | null }
+  ): Promise<ToolExecutionResult> {
     const tool = this.toolRegistry.get(toolCall.toolName);
     if (!tool) {
       return {
@@ -100,11 +104,39 @@ export class HarnessRuntime {
     }
 
     if (tool.definition.risk === "guarded" && !this.config.allowGuardedTools) {
-      // run_skill_script applies its own scope-based approval inside the tool.
-      if (toolCall.toolName !== "run_skill_script") {
+      const approvalRequest = createApprovalRequest(toolCall);
+      const logger = options?.logger;
+      const turnId = options?.turnId ?? null;
+      logger?.emit(
+        "approval_requested",
+        {
+          toolCall,
+          argumentSummary: approvalRequest.argumentSummary
+        },
+        turnId
+      );
+
+      const allowed = this.config.requestApproval
+        ? await this.config.requestApproval(approvalRequest)
+        : false;
+
+      logger?.emit(
+        "approval_decided",
+        {
+          toolCall,
+          allowed,
+          argumentSummary: approvalRequest.argumentSummary,
+          viaHost: Boolean(this.config.requestApproval)
+        },
+        turnId
+      );
+
+      if (!allowed) {
         return {
           ok: false,
-          content: `Guarded tool requires approval: ${toolCall.toolName}`
+          content: this.config.requestApproval
+            ? `User denied Approval for ${toolCall.toolName}`
+            : `Guarded tool requires Approval: ${toolCall.toolName}`
         };
       }
     }
@@ -112,9 +144,7 @@ export class HarnessRuntime {
     try {
       return await tool.execute(toolCall.arguments, {
         cwd: this.config.cwd,
-        allowGuardedTools: this.config.allowGuardedTools,
-        skillRegistry: this.skillRegistry,
-        confirmSkillScript: this.config.confirmSkillScript
+        skillRegistry: this.skillRegistry
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown tool failure";
@@ -324,7 +354,10 @@ export class HarnessSession {
       const toolMessages: ConversationMessage[] = [];
       for (const toolCall of response.toolCalls) {
         logger.emit("tool_call", { toolCall }, turnId);
-        const toolResult = await this.runtime.executeTool(toolCall);
+        const toolResult = await this.runtime.executeTool(toolCall, {
+          logger,
+          turnId
+        });
         logger.emit("tool_result", { toolCall, toolResult }, turnId);
         toolMessages.push({
           role: "tool",

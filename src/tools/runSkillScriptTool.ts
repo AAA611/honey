@@ -1,10 +1,7 @@
 import {
-  evaluateSkillScriptApproval,
   resolveSkillScriptPath,
-  runSkillScript,
-  toScriptRequest
+  runSkillScript
 } from "../skills/runScript.js";
-import type { SkillScriptRequest } from "../skills/types.js";
 import type { Tool, ToolExecutionContext } from "../types.js";
 
 export const runSkillScriptTool: Tool = {
@@ -52,17 +49,7 @@ export const runSkillScriptTool: Tool = {
       return { ok: false, content: resolved.reason };
     }
 
-    const request = toScriptRequest(skill, resolved.relativePath, resolved.absolutePath);
-    const confirmed = await confirmIfNeeded(request, context);
-    const approval = evaluateSkillScriptApproval({
-      scope: skill.scope,
-      allowGuardedTools: context.allowGuardedTools ?? false,
-      userConfirmed: confirmed
-    });
-    if (!approval.ok) {
-      return { ok: false, content: approval.reason };
-    }
-
+    // Guarded execution / Approval is owned by Harness.executeTool (ADR-0009).
     const result = await runSkillScript({
       absolutePath: resolved.absolutePath,
       cwd: context.cwd,
@@ -80,16 +67,3 @@ export const runSkillScriptTool: Tool = {
     };
   }
 };
-
-async function confirmIfNeeded(
-  request: SkillScriptRequest,
-  context: ToolExecutionContext
-): Promise<boolean> {
-  if (request.scope !== "user") {
-    return false;
-  }
-  if (!context.confirmSkillScript) {
-    return false;
-  }
-  return context.confirmSkillScript(request);
-}
