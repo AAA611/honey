@@ -216,7 +216,7 @@ async function createRuntime(
 
   return new HarnessRuntime(cli.provider, tools, {
     cwd: cwd(),
-    maxTurns: 4,
+    maxTurns: 200,
     allowGuardedTools: cli.allowGuardedTools,
     workspaceBound: cli.workspaceBound,
     systemPrompt: createDefaultSystemPrompt(),
