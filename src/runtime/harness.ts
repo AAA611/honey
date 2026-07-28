@@ -56,6 +56,7 @@ import {
   isPlanModeToolAllowed,
   UPDATE_PLAN_TOOL_NAME
 } from "./planMode.js";
+import { formatSoftFailure } from "./softFailure.js";
 import {
   formatSubagentResult,
   SPAWN_SUBAGENT_TOOL_NAME
@@ -115,28 +116,44 @@ export class HarnessRuntime {
     if (!tool) {
       return {
         ok: false,
-        content: `Unknown tool: ${toolCall.toolName}`
+        content: formatSoftFailure(
+          `Unknown tool: ${toolCall.toolName}`,
+          "That name is not on this Run's Tool surface",
+          "Pick a Tool from the offered list, or adjust the Task to available Tools"
+        )
       };
     }
 
     if (options?.planMode && !isPlanModeToolAllowed(toolCall.toolName)) {
       return {
         ok: false,
-        content: `Tool not available in Plan Mode: ${toolCall.toolName}`
+        content: formatSoftFailure(
+          `Tool not available in Plan Mode: ${toolCall.toolName}`,
+          "Plan Mode only allows the read allowlist plus update_plan",
+          "Use read_file / search_workspace / update_plan, or leave Plan Mode before mutating"
+        )
       };
     }
 
     if (!options?.planMode && toolCall.toolName === UPDATE_PLAN_TOOL_NAME) {
       return {
         ok: false,
-        content: "update_plan is only available in Plan Mode"
+        content: formatSoftFailure(
+          "update_plan is only available in Plan Mode",
+          "The Session is not in Plan Mode",
+          "Enter Plan Mode with /plan before calling update_plan, or continue without it"
+        )
       };
     }
 
     if (tool.definition.risk === "blocked") {
       return {
         ok: false,
-        content: `Blocked tool: ${toolCall.toolName}`
+        content: formatSoftFailure(
+          `Blocked tool: ${toolCall.toolName}`,
+          "This Tool is blocked by policy for the Run",
+          "Choose a different Tool that can achieve the Task"
+        )
       };
     }
 
@@ -161,7 +178,11 @@ export class HarnessRuntime {
         );
         return {
           ok: false,
-          content: bound.reason
+          content: formatSoftFailure(
+            `Workspace bound rejected path for ${toolCall.toolName}`,
+            bound.reason,
+            "Use a path under the Session cwd, or ask about disabling Workspace bound if escape is intentional"
+          )
         };
       }
     }
@@ -195,11 +216,23 @@ export class HarnessRuntime {
       );
 
       if (!allowed) {
+        if (this.config.requestApproval) {
+          return {
+            ok: false,
+            content: formatSoftFailure(
+              `User denied Approval for ${toolCall.toolName}`,
+              "The user refused this guarded Tool call",
+              "Try a safer Tool, revise the call, or ask the user to approve a different approach"
+            )
+          };
+        }
         return {
           ok: false,
-          content: this.config.requestApproval
-            ? `User denied Approval for ${toolCall.toolName}`
-            : `Guarded tool requires Approval: ${toolCall.toolName}`
+          content: formatSoftFailure(
+            `Guarded tool requires Approval: ${toolCall.toolName}`,
+            "No Approval host is wired and --allow-guarded-tools is off",
+            "Re-run with an Approval host (Session TUI/REPL) or --allow-guarded-tools, or use a safe Tool"
+          )
         };
       }
     }
@@ -216,7 +249,11 @@ export class HarnessRuntime {
       const message = error instanceof Error ? error.message : "Unknown tool failure";
       return {
         ok: false,
-        content: message
+        content: formatSoftFailure(
+          `Tool ${toolCall.toolName} threw`,
+          message,
+          "Diagnose the error, then change arguments, switch Tools, or probe before retrying"
+        )
       };
     }
   }
@@ -981,7 +1018,9 @@ export function createDefaultSystemPrompt(): string {
     "Path-taking Tools stay inside the Session cwd (Workspace bound) unless disabled.",
     "When a Skill in the catalog matches the Task, read its SKILL.md via read_file before following it.",
     "Run Skill packaged scripts only through run_skill_script.",
-    "For a self-contained subtask that should not pollute this Assembled prompt, delegate with spawn_subagent and a full prompt; the Subagent cannot spawn further Subagents."
+    "For a self-contained subtask that should not pollute this Assembled prompt, delegate with spawn_subagent and a full prompt; the Subagent cannot spawn further Subagents.",
+    "When a Tool returns a Soft failure (ok false), diagnose from the result before retrying; do not blindly repeat the same failing call with the same arguments—change parameters, switch Tools, or probe first.",
+    "A non-zero shell exit from exec_command is a Soft failure, not Task completion—keep working toward the Task."
   ].join(" ");
 }
 

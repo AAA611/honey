@@ -69,5 +69,9 @@ This repository contains a local CLI harness project for learning how Claude Cod
   _Avoid_: Agent (as a peer entity beside Harness), child session, worker, multi-agent orchestration DAG
 - **Subagent result**: the structured Tool result returned to the parent after a Subagent finishes — at least `summary`, `status`, and `run_id`, with a hard character cap on `summary`. It is not the Subagent Transcript; full nested detail lives in the Session event log under the Subagent `run_id` (linked via `parent_run_id`).
   _Avoid_: full child Transcript dump into the parent Working set
+- **Soft failure**: a Tool or policy outcome delivered into the Working set as a failed Tool result so the Run can continue; the model may change parameters, switch Tools, or re-probe on later Turns. Covers Tool execution failures, Approval deny, Workspace bound rejection, unavailable/unsupported Tool or Connector outcomes, and Environment mismatches reported through Tool results. Does not cover a successful Tool result that simply fails Task acceptance. v1 formats Harness-dispatch Soft failures as actionable free-text (what failed, why, what to try) plus light System guidance; built-in Tool and Connector message polish is follow-up — not a structured recovery schema.
+  _Avoid_: exception-as-abort, Harness auto-remediation, treating Task-miss as a Soft failure, recovery error codes as the v1 contract
+- **Hard failure**: a condition that ends the Run in ERROR because another Turn cannot usefully proceed — for example Provider/transport failure, illegal stop reason, or hard budget exhaustion.
+  _Avoid_: Soft failure; treating Soft failure Tool results as Run-ending errors
 
 This glossary is intentionally small and should grow only when a term becomes stable and necessary.

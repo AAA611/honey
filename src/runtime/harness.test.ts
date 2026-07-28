@@ -25,6 +25,140 @@ afterEach(async () => {
 });
 
 describe("HarnessRuntime", () => {
+  it("teaches Soft failure recovery in the default System prompt", () => {
+    const prompt = createDefaultSystemPrompt();
+    expect(prompt).toMatch(/Soft failure/i);
+    expect(prompt).toMatch(/do not blindly repeat/i);
+    expect(prompt).toMatch(/diagnose/i);
+    expect(prompt).toMatch(/non-zero shell exit/i);
+  });
+
+  it("returns an actionable Soft failure for unknown Tools", async () => {
+    const runtime = createRuntime(await makeFixtureDir());
+    const result = await runtime.executeTool({
+      callId: "c1",
+      toolName: "no_such_tool",
+      arguments: {}
+    });
+    expect(result.ok).toBe(false);
+    expect(result.content).toMatch(/^Soft failure:/);
+    expect(result.content).toContain("no_such_tool");
+    expect(result.content).toMatch(/Next:/);
+  });
+
+  it("returns an actionable Soft failure when Approval is denied", async () => {
+    const runtime = createRuntime(await makeFixtureDir(), false, new ScriptedProvider(), {
+      requestApproval: async () => false
+    });
+    const result = await runtime.executeTool({
+      callId: "c1",
+      toolName: "apply_patch",
+      arguments: { path: "f.txt", find: "a", replace: "b" }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.content).toMatch(/^Soft failure:/);
+    expect(result.content).toContain("User denied Approval for apply_patch");
+    expect(result.content).toMatch(/Next:/);
+  });
+
+  it("returns an actionable Soft failure when Approval host is missing", async () => {
+    const runtime = createRuntime(await makeFixtureDir(), false);
+    const result = await runtime.executeTool({
+      callId: "c1",
+      toolName: "apply_patch",
+      arguments: { path: "f.txt", find: "a", replace: "b" }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.content).toMatch(/^Soft failure:/);
+    expect(result.content).toContain("requires Approval");
+    expect(result.content).toMatch(/Next:/);
+  });
+
+  it("returns an actionable Soft failure for Workspace bound rejection", async () => {
+    const root = await makeFixtureDir();
+    const cwd = join(root, "workspace");
+    await mkdir(cwd);
+    await writeFile(join(root, "secret.txt"), "outside", "utf8");
+    const runtime = createRuntime(cwd);
+    const result = await runtime.executeTool({
+      callId: "c1",
+      toolName: "read_file",
+      arguments: { path: "../secret.txt" }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.content).toMatch(/^Soft failure:/);
+    expect(result.content).toMatch(/Workspace bound/i);
+    expect(result.content).toMatch(/Next:/);
+  });
+
+  it("returns an actionable Soft failure when Tool execute throws", async () => {
+    const throwingTool = {
+      definition: {
+        name: "boom",
+        description: "throws",
+        risk: "safe" as const,
+        inputSchema: { type: "object", properties: {} }
+      },
+      execute: async () => {
+        throw new Error("disk exploded");
+      }
+    };
+    const dir = await makeFixtureDir();
+    const runtime = new HarnessRuntime(
+      new ScriptedProvider(),
+      [...createDefaultTools(), throwingTool],
+      {
+        cwd: dir,
+        maxTurns: 4,
+        allowGuardedTools: false,
+        systemPrompt: createDefaultSystemPrompt(),
+        tokenBudget: 8_000,
+        skillsHomeDir: join(dir, ".honey-test-home"),
+        sessionEventLog: false
+      }
+    );
+    const result = await runtime.executeTool({
+      callId: "c1",
+      toolName: "boom",
+      arguments: {}
+    });
+    expect(result.ok).toBe(false);
+    expect(result.content).toMatch(/^Soft failure:/);
+    expect(result.content).toContain("disk exploded");
+    expect(result.content).toMatch(/Next:/);
+  });
+
+  it("returns an actionable Soft failure for blocked Tools", async () => {
+    const blockedTool = {
+      definition: {
+        name: "nuke",
+        description: "blocked",
+        risk: "blocked" as const,
+        inputSchema: { type: "object", properties: {} }
+      },
+      execute: async () => ({ ok: true, content: "should not run" })
+    };
+    const dir = await makeFixtureDir();
+    const runtime = new HarnessRuntime(new ScriptedProvider(), [blockedTool], {
+      cwd: dir,
+      maxTurns: 4,
+      allowGuardedTools: false,
+      systemPrompt: createDefaultSystemPrompt(),
+      tokenBudget: 8_000,
+      skillsHomeDir: join(dir, ".honey-test-home"),
+      sessionEventLog: false
+    });
+    const result = await runtime.executeTool({
+      callId: "c1",
+      toolName: "nuke",
+      arguments: {}
+    });
+    expect(result.ok).toBe(false);
+    expect(result.content).toMatch(/^Soft failure:/);
+    expect(result.content).toContain("Blocked tool");
+    expect(result.content).toMatch(/Next:/);
+  });
+
   it("runs a safe tool flow and returns a final assistant response", async () => {
     const dir = await makeFixtureDir();
     await writeFile(join(dir, "note.txt"), "hello harness", "utf8");
