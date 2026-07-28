@@ -49,6 +49,12 @@ export function splitComposerKeyAtoms(rewritten: string): string[] {
       if (sequence) {
         events.push(sequence);
         i += sequence.length;
+      } else if (rest.startsWith("\u001b[")) {
+        // Incomplete CSI (`\x1b[`, `\x1b[27`, or `\x1b[` before another Esc) —
+        // treat as Esc; never type the dangling `[`.
+        const incomplete = /^\u001b\[[\d;:?]*/.exec(rest);
+        events.push("\u001b");
+        i += incomplete ? incomplete[0].length : 2;
       } else {
         events.push("\u001b");
         i += 1;

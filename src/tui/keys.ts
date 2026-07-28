@@ -105,21 +105,30 @@ export function rewriteKittyCsiUChunk(chunk: string): {
   let body = chunk;
   const incomplete = KITTY_CSI_U_RAW_INCOMPLETE.exec(chunk);
   if (incomplete && incomplete.index !== undefined) {
-    // Only hold back a trailing incomplete prefix; completed sequences rewrite.
-    const hold = incomplete[0];
-    // A lone trailing ESC might be a complete Esc key — only hold if it looks
-    // like the start of CSI (`\x1b[`...) or a short `\x1b` that may gain `[`.
-    if (hold === "\u001b") {
-      // Bare Esc is complete; do not buffer it.
-    } else {
-      rest = hold;
-      body = chunk.slice(0, incomplete.index);
+    // Hold trailing incomplete prefixes, including bare Esc.
+    // Cursor often delivers Esc as `\x1b` then `[` on the next readable; if we
+    // emit Esc immediately, `[` types into `/` → `/[` and the slash panel looks
+    // like Esc failed.
+    rest = incomplete[0];
+    body = chunk.slice(0, incomplete.index);
+  }
+
+  let rewritten = body.replace(KITTY_CSI_U_RAW, (_match, code: string) =>
+    legacyKeyForCodepoint(Number(code))
+  );
+
+  // If rewrite left an incomplete CSI *with bracket* in the body
+  // (e.g. `\x1b[\x1b[`), hold it instead of emitting Esc + printable `[`.
+  // Do not re-hold a bare Esc produced by rewriting `\x1b[27u`.
+  const bodyIncomplete = KITTY_CSI_U_RAW_INCOMPLETE.exec(rewritten);
+  if (bodyIncomplete && bodyIncomplete.index !== undefined) {
+    const hold = bodyIncomplete[0];
+    if (hold.startsWith("\u001b[")) {
+      rest = `${hold}${rest}`;
+      rewritten = rewritten.slice(0, bodyIncomplete.index);
     }
   }
 
-  const rewritten = body.replace(KITTY_CSI_U_RAW, (_match, code: string) =>
-    legacyKeyForCodepoint(Number(code))
-  );
   return { rewritten, rest };
 }
 

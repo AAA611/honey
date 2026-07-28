@@ -194,6 +194,36 @@ describe("slash Esc dismiss (Ink stdin path)", () => {
     expect(closedFrame).not.toMatch(/honey›\s*\//);
   });
 
+  it("dismisses when Esc arrives as separate \\x1b then [ without leaving /[", async () => {
+    const { runtime, session } = createMocks();
+    const { lastFrame, stdin, unmount } = render(
+      <SessionTuiApp runtime={runtime} session={session} />
+    );
+    cleanups.push(unmount);
+
+    await settle();
+    stdin.write("/");
+    await settle(80);
+    expect(lastFrame()).toContain("/context");
+
+    // Same-tick split readable bytes — must not type `[` onto `/`.
+    stdin.write("\u001b");
+    stdin.write("[");
+    await settle(120);
+
+    const closedFrame = lastFrame() ?? "";
+    expect(closedFrame, "overlay must close").not.toContain("/context —");
+    expect(closedFrame, "must not leave /[ from split Esc").not.toMatch(
+      /honey›\s*\/\[/
+    );
+    expect(closedFrame, "composer must clear slash query").not.toMatch(
+      /honey›\s*\//
+    );
+    expect(closedFrame, "must not leave a dangling [").not.toMatch(
+      /honey›\s*\[/
+    );
+  });
+
 });
 
 function createMocks(): {

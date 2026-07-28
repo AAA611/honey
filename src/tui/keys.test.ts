@@ -145,10 +145,13 @@ describe("rewriteKittyCsiUChunk", () => {
     });
   });
 
-  it("does not hold a bare Esc", () => {
+  it("holds a bare Esc so a following [ can coalesce into CSI", () => {
+    // Cursor often delivers Esc as `\x1b` then `[` on the next readable.
+    // Emitting Esc immediately lets `[` type into `/` → `/[` and the panel
+    // looks like Esc failed.
     expect(rewriteKittyCsiUChunk("\u001b")).toEqual({
-      rewritten: "\u001b",
-      rest: ""
+      rewritten: "",
+      rest: "\u001b"
     });
   });
 });
@@ -172,5 +175,12 @@ describe("splitComposerKeyAtoms", () => {
     expect(splitComposerKeyAtoms("\u001b[D")).toEqual(["\u001b[D"]);
     expect(splitComposerKeyAtoms("ab\u001b[C")).toEqual(["ab", "\u001b[C"]);
     expect(splitComposerKeyAtoms("\u001b")).toEqual(["\u001b"]);
+  });
+
+  it("treats incomplete CSI Esc prefix as Esc without typing [", () => {
+    // Defense in depth: rewritten must not become Esc + printable `[`.
+    expect(splitComposerKeyAtoms("\u001b[")).toEqual(["\u001b"]);
+    expect(splitComposerKeyAtoms("\u001b[\u001b")).toEqual(["\u001b", "\u001b"]);
+    expect(splitComposerKeyAtoms("\u001b[27")).toEqual(["\u001b"]);
   });
 });

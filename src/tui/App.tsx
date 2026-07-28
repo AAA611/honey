@@ -145,8 +145,20 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   };
 
   const setComposerValue = useCallback((next: string, nextCursor = next.length) => {
+    const cursorNext = Math.max(0, Math.min(nextCursor, next.length));
     setValue(next);
-    setCursor(Math.max(0, Math.min(nextCursor, next.length)));
+    setCursor(cursorNext);
+    // Keep the ref in sync inside the same stdin turn. Esc often arrives as
+    // `\x1b` then `[`; without this, `[` still sees slashOpen/value="/" and
+    // rebuilds `/[` so the panel looks like Esc did nothing.
+    const current = stateRef.current;
+    const slashQueryNext = getSlashQuery(next);
+    stateRef.current = {
+      ...current,
+      value: next,
+      cursor: cursorNext,
+      slashOpen: slashQueryNext !== null && !current.busy && !current.approval
+    };
   }, []);
 
   useEffect(() => {
