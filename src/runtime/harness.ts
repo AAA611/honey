@@ -1,11 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  assembleProviderMessages,
-  assembleSystemPrompt,
-  createAssemblySnapshot
-} from "../context/assemble.js";
 import { compactIfNeeded } from "../context/compact.js";
 import { formatContextInventory } from "../context/inventory.js";
 import { appendWorkingMessages, createContextLayers } from "../context/layers.js";
@@ -29,8 +24,7 @@ import {
 } from "../logging/sessionEventLog.js";
 import {
   createExecutionStepChecklist,
-  createPlanningStepChecklist,
-  markStepChecklistStep
+  createPlanningStepChecklist
 } from "../planning/plan.js";
 import { formatExplicitSkillInstructions } from "../skills/catalog.js";
 import { SkillRegistry } from "../skills/registry.js";
@@ -42,7 +36,6 @@ import type {
   ContextLayers,
   HarnessConfig,
   HarnessRunResult,
-  HarnessState,
   StepChecklist,
   Provider,
   SessionSnapshot,
@@ -61,6 +54,7 @@ import {
   formatSubagentResult,
   SPAWN_SUBAGENT_TOOL_NAME
 } from "./subagent.js";
+import { runTurnLoop, type TurnLoopScope } from "./turnLoop.js";
 import { checkToolCallWorkspaceBound } from "./workspaceBound.js";
 
 export class HarnessRuntime {
@@ -363,8 +357,6 @@ export class HarnessSession {
       onEmit: (event) => this.eventLog?.append(event)
     });
     const turnId = randomUUID();
-    let state: HarnessState = "USER_INPUT";
-    let output = "";
 
     const transitionKind = decideTaskTransition({
       userInput,
@@ -424,123 +416,21 @@ export class HarnessSession {
       turnId
     );
 
-    for (let turn = 0; turn < this.runtime.config.maxTurns; turn += 1) {
-      state = transition(logger, turnId, state, "MODEL_TURN");
-      this.context = this.compactContext();
-      const assembleOpts = this.assembleOptions();
-      const assembledSystem = assembleSystemPrompt(this.context, assembleOpts);
-      const assembledMessages = assembleProviderMessages(this.context);
-      const assemblySnapshot = createAssemblySnapshot(this.context, assembleOpts);
-      this.assemblySnapshots.push(assemblySnapshot);
-
-      let promptDumpPath: string | null = null;
-      if (this.runtime.config.dumpPrompts) {
-        this.dumpSequence += 1;
-        promptDumpPath = dumpAssembledPrompt({
-          directory:
-            this.runtime.config.dumpPromptsDir ??
-            defaultDumpPromptsDir(this.runtime.config.cwd),
-          sessionId: this.sessionId,
-          turnId,
-          sequence: this.dumpSequence,
-          systemPrompt: assembledSystem,
-          messages: assembledMessages,
-          tokenEstimate: assemblySnapshot.tokenEstimate
-        });
-      }
-
-      logger.emit(
-        "model_request",
-        {
-          assembled: true,
-          task: this.context.task,
-          projectInstructionsChars: this.context.projectInstructions.length,
-          summary: this.context.summary,
-          workingSetCount: this.context.workingSet.length,
-          pinnedCount: this.context.pinned.length,
-          skillCatalogChars: this.context.skillCatalog.length,
-          skillInstructionsChars: this.context.skillInstructions.length,
-          environment: this.context.environment,
-          tokenEstimate: assemblySnapshot.tokenEstimate,
-          compaction: this.context.compaction,
-          promptDumpPath,
-          planMode: this.planMode
-        },
-        turnId
-      );
-
-      let response;
-      try {
-        response = await this.runtime.provider.sendTurn({
-          systemPrompt: assembledSystem,
-          messages: assembledMessages,
-          tools: this.offeredToolDefinitions()
-        });
-      } catch (error: unknown) {
-        state = transition(logger, turnId, state, "ERROR");
-        output =
-          error instanceof Error ? error.message : `Provider error: ${String(error)}`;
-        logger.emit("error", { output }, turnId);
-        break;
-      }
-
-      logger.emit(
-        "model_response",
-        {
-          stopReason: response.stopReason,
-          toolCalls: response.toolCalls,
-          assistantMessage: response.assistantMessage?.content,
-          usage: response.usage
-        },
-        turnId
-      );
-
-      if (response.assistantMessage) {
-        this.transcript = [...this.transcript, response.assistantMessage];
-        this.context = appendWorkingMessages(this.context, [
-          response.assistantMessage
-        ]);
-      }
-
-      if (response.stopReason === "completed" && response.assistantMessage) {
-        state = transition(logger, turnId, state, "DONE");
-        this.stepChecklist = markChecklistComplete(
-          this.stepChecklist!,
-          this.planMode
-        );
-        logger.emit(
-          "step_checklist_updated",
-          { stepChecklist: this.stepChecklist },
-          turnId
-        );
-        output = response.assistantMessage.content;
-        logger.emit("turn_finished", { output }, turnId);
-        break;
-      }
-
-      if (response.stopReason !== "tool_calls") {
-        state = transition(logger, turnId, state, "ERROR");
-        output = "Provider returned an unsupported stop reason.";
-        logger.emit("error", { output }, turnId);
-        break;
-      }
-
-      this.stepChecklist = markChecklistToolsInProgress(
-        this.stepChecklist!,
-        this.planMode,
-        response.toolCalls
-      );
-      logger.emit(
-        "step_checklist_updated",
-        { stepChecklist: this.stepChecklist },
-        turnId
-      );
-      state = transition(logger, turnId, state, "TOOL_DISPATCH");
-
-      const toolMessages: ConversationMessage[] = [];
-      for (const toolCall of response.toolCalls) {
-        logger.emit("tool_call", { toolCall }, turnId);
-        const toolResult = await this.runtime.executeTool(toolCall, {
+    const scope: TurnLoopScope = {
+      logger,
+      turnId,
+      maxTurns: this.runtime.config.maxTurns,
+      tokenBudget: this.runtime.config.tokenBudget,
+      provider: this.runtime.provider,
+      tools: this.offeredToolDefinitions(),
+      refetchableToolNames: this.runtime.refetchableToolNames(),
+      context: this.context,
+      stepChecklist: this.stepChecklist!,
+      getPlanMode: () => this.planMode,
+      getPlanDocument: () => this.planDocument,
+      transcript: this.transcript,
+      executeTool: (toolCall) =>
+        this.runtime.executeTool(toolCall, {
           logger,
           turnId,
           planMode: this.planMode,
@@ -550,28 +440,43 @@ export class HarnessSession {
           runSubagent: this.planMode
             ? undefined
             : (prompt) => this.runSubagent(prompt, logger)
-        });
-        logger.emit("tool_result", { toolCall, toolResult }, turnId);
-        toolMessages.push({
-          role: "tool",
-          callId: toolCall.callId,
-          toolName: toolCall.toolName,
-          content: toolResult.content,
-          ok: toolResult.ok
-        });
-      }
+        }),
+      recordAssemblySnapshot: (snapshot) => {
+        this.assemblySnapshots.push(snapshot);
+      },
+      dumpAssembledPrompt: this.runtime.config.dumpPrompts
+        ? ({ systemPrompt, messages, tokenEstimate }) => {
+            this.dumpSequence += 1;
+            return dumpAssembledPrompt({
+              directory:
+                this.runtime.config.dumpPromptsDir ??
+                defaultDumpPromptsDir(this.runtime.config.cwd),
+              sessionId: this.sessionId,
+              turnId,
+              sequence: this.dumpSequence,
+              systemPrompt,
+              messages,
+              tokenEstimate
+            });
+          }
+        : undefined,
+      modelRequestExtras: (context) => ({
+        projectInstructionsChars: context.projectInstructions.length,
+        summary: context.summary,
+        pinnedCount: context.pinned.length,
+        skillCatalogChars: context.skillCatalog.length,
+        skillInstructionsChars: context.skillInstructions.length,
+        environment: context.environment,
+        compaction: context.compaction,
+        planMode: this.planMode
+      })
+    };
 
-      this.transcript = [...this.transcript, ...toolMessages];
-      this.context = appendWorkingMessages(this.context, toolMessages);
-      this.context = this.compactContext();
-      state = transition(logger, turnId, state, "TOOL_RESULT");
-    }
-
-    if (state !== "DONE" && state !== "ERROR") {
-      state = transition(logger, turnId, state, "ERROR");
-      output = "Run stopped after reaching the max turn limit.";
-      logger.emit("error", { output }, turnId);
-    }
+    const loopResult = await runTurnLoop(scope);
+    this.context = scope.context;
+    this.stepChecklist = scope.stepChecklist;
+    const state = loopResult.finalState;
+    const output = loopResult.output;
 
     logger.emit("run_finished", { finalState: state, output }, turnId);
     const checklist = this.stepChecklist!;
@@ -655,133 +560,33 @@ export class HarnessSession {
       stepChecklist,
       this.runtime.config.tokenBudget,
       undefined,
-      refetchable
+      refetchable,
+      { planDocument: null, planMode: false }
     );
 
-    let state: HarnessState = "USER_INPUT";
-    let output = "";
-
-    for (let turn = 0; turn < this.runtime.config.maxTurns; turn += 1) {
-      state = transition(childLogger, turnId, state, "MODEL_TURN");
-      context = compactIfNeeded(
-        context,
-        stepChecklist,
-        this.runtime.config.tokenBudget,
-        undefined,
-        refetchable
-      );
-      const assembledSystem = assembleSystemPrompt(context, stepChecklist);
-      const assembledMessages = assembleProviderMessages(context);
-
-      childLogger.emit(
-        "model_request",
-        {
-          assembled: true,
-          nested: true,
-          task: context.task,
-          workingSetCount: context.workingSet.length,
-          tokenEstimate: createAssemblySnapshot(context, stepChecklist)
-            .tokenEstimate
-        },
-        turnId
-      );
-
-      let response;
-      try {
-        response = await this.runtime.provider.sendTurn({
-          systemPrompt: assembledSystem,
-          messages: assembledMessages,
-          tools: childTools
-        });
-      } catch (error: unknown) {
-        state = transition(childLogger, turnId, state, "ERROR");
-        output =
-          error instanceof Error ? error.message : `Provider error: ${String(error)}`;
-        childLogger.emit("error", { output }, turnId);
-        break;
-      }
-
-      childLogger.emit(
-        "model_response",
-        {
-          stopReason: response.stopReason,
-          toolCalls: response.toolCalls,
-          assistantMessage: response.assistantMessage?.content,
-          usage: response.usage
-        },
-        turnId
-      );
-
-      if (response.assistantMessage) {
-        context = appendWorkingMessages(context, [response.assistantMessage]);
-      }
-
-      if (response.stopReason === "completed" && response.assistantMessage) {
-        state = transition(childLogger, turnId, state, "DONE");
-        stepChecklist = markChecklistComplete(stepChecklist, false);
-        childLogger.emit(
-          "step_checklist_updated",
-          { stepChecklist },
-          turnId
-        );
-        output = response.assistantMessage.content;
-        childLogger.emit("turn_finished", { output }, turnId);
-        break;
-      }
-
-      if (response.stopReason !== "tool_calls") {
-        state = transition(childLogger, turnId, state, "ERROR");
-        output = "Provider returned an unsupported stop reason.";
-        childLogger.emit("error", { output }, turnId);
-        break;
-      }
-
-      stepChecklist = markChecklistToolsInProgress(
-        stepChecklist,
-        false,
-        response.toolCalls
-      );
-      childLogger.emit(
-        "step_checklist_updated",
-        { stepChecklist },
-        turnId
-      );
-      state = transition(childLogger, turnId, state, "TOOL_DISPATCH");
-
-      const toolMessages: ConversationMessage[] = [];
-      for (const toolCall of response.toolCalls) {
-        childLogger.emit("tool_call", { toolCall }, turnId);
-        // Depth 1: do not pass runSubagent into nested Tool execution.
-        const toolResult = await this.runtime.executeTool(toolCall, {
+    const scope: TurnLoopScope = {
+      logger: childLogger,
+      turnId,
+      maxTurns: this.runtime.config.maxTurns,
+      tokenBudget: this.runtime.config.tokenBudget,
+      provider: this.runtime.provider,
+      tools: childTools,
+      refetchableToolNames: refetchable,
+      context,
+      stepChecklist,
+      getPlanMode: () => false,
+      getPlanDocument: () => null,
+      executeTool: (toolCall) =>
+        this.runtime.executeTool(toolCall, {
           logger: childLogger,
           turnId
-        });
-        childLogger.emit("tool_result", { toolCall, toolResult }, turnId);
-        toolMessages.push({
-          role: "tool",
-          callId: toolCall.callId,
-          toolName: toolCall.toolName,
-          content: toolResult.content,
-          ok: toolResult.ok
-        });
-      }
+        }),
+      modelRequestExtras: () => ({ nested: true })
+    };
 
-      context = appendWorkingMessages(context, toolMessages);
-      context = compactIfNeeded(
-        context,
-        stepChecklist,
-        this.runtime.config.tokenBudget,
-        undefined,
-        refetchable
-      );
-      state = transition(childLogger, turnId, state, "TOOL_RESULT");
-    }
-
-    if (state !== "DONE" && state !== "ERROR") {
-      state = transition(childLogger, turnId, state, "ERROR");
-      output = "Run stopped after reaching the max turn limit.";
-      childLogger.emit("error", { output }, turnId);
-    }
+    const loopResult = await runTurnLoop(scope);
+    const state = loopResult.finalState;
+    const output = loopResult.output;
 
     const status = state === "DONE" ? "completed" : "error";
     const content = formatSubagentResult({
@@ -937,50 +742,6 @@ function firstLineGoal(planMarkdown: string): string {
   return line?.replace(/^#+\s*/, "") ?? "";
 }
 
-function markChecklistComplete(
-  checklist: StepChecklist,
-  planMode: boolean
-): StepChecklist {
-  if (planMode) {
-    let next = markStepChecklistStep(checklist, "clarify-goal", "done");
-    next = markStepChecklistStep(next, "explore-readonly", "done");
-    const writeStatus = checklist.steps.find(
-      (step) => step.id === "write-plan"
-    )?.status;
-    if (writeStatus === "in_progress" || writeStatus === "done") {
-      next = markStepChecklistStep(next, "write-plan", "done");
-    }
-    return next;
-  }
-  let next = markStepChecklistStep(checklist, "understand-request", "done");
-  next = markStepChecklistStep(next, "use-tools", "done");
-  next = markStepChecklistStep(next, "report", "done");
-  return next;
-}
-
-function markChecklistToolsInProgress(
-  checklist: StepChecklist,
-  planMode: boolean,
-  toolCalls: ToolCall[]
-): StepChecklist {
-  if (planMode) {
-    let next = markStepChecklistStep(checklist, "clarify-goal", "done");
-    const wrotePlan = toolCalls.some(
-      (call) => call.toolName === UPDATE_PLAN_TOOL_NAME
-    );
-    if (wrotePlan) {
-      next = markStepChecklistStep(next, "explore-readonly", "done");
-      next = markStepChecklistStep(next, "write-plan", "in_progress");
-    } else {
-      next = markStepChecklistStep(next, "explore-readonly", "in_progress");
-    }
-    return next;
-  }
-  let next = markStepChecklistStep(checklist, "understand-request", "done");
-  next = markStepChecklistStep(next, "use-tools", "in_progress");
-  return next;
-}
-
 function formatEnvironment(config: HarnessConfig): string {
   return [
     `cwd: ${config.cwd}`,
@@ -997,16 +758,6 @@ function readExcerpt(cwd: string, relativePath: string): string | null {
   } catch {
     return null;
   }
-}
-
-function transition(
-  logger: EventLogger,
-  turnId: string,
-  from: HarnessState,
-  to: HarnessState
-): HarnessState {
-  logger.emit("state_transition", { from, to }, turnId);
-  return to;
 }
 
 export function createDefaultSystemPrompt(): string {
