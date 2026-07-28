@@ -5,12 +5,14 @@ import { runTestsTool } from "./runTestsTool.js";
 import { runSkillScriptTool } from "./runSkillScriptTool.js";
 import { searchWorkspaceTool } from "./searchWorkspaceTool.js";
 import { spawnSubagentTool } from "./spawnSubagentTool.js";
+import { updatePlanTool } from "./updatePlanTool.js";
 import type { Tool } from "../types.js";
 
 export function createDefaultTools(): Tool[] {
   return [
     readFileTool,
     searchWorkspaceTool,
+    updatePlanTool,
     execCommandTool,
     applyPatchTool,
     runTestsTool,

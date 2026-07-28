@@ -311,7 +311,9 @@ function createMocks(skills: SkillManifest[] = []): {
         pinned: [],
         compaction: { clearedTools: false, summarized: false }
       },
+      stepChecklist: null,
       plan: null,
+      planMode: false,
       history: [],
       assemblySnapshots: []
     }),

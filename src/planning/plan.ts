@@ -1,6 +1,7 @@
-import type { Plan } from "../types.js";
+import type { StepChecklist } from "../types.js";
 
-export function createInitialPlan(goal: string): Plan {
+/** Execution-oriented Step checklist (default after `/execute` or normal Runs). */
+export function createExecutionStepChecklist(goal: string): StepChecklist {
   return {
     goal,
     steps: [
@@ -23,16 +24,45 @@ export function createInitialPlan(goal: string): Plan {
   };
 }
 
-export function markPlanStep(
-  plan: Plan,
-  stepId: string,
-  status: Plan["steps"][number]["status"],
-  notes?: string
-): Plan {
+/** Planning-oriented Step checklist used while Plan Mode is active. */
+export function createPlanningStepChecklist(goal: string): StepChecklist {
   return {
-    ...plan,
-    steps: plan.steps.map((step) =>
+    goal,
+    steps: [
+      {
+        id: "clarify-goal",
+        title: "Clarify the Goal, Scope, and Acceptance for the Plan",
+        status: "in_progress"
+      },
+      {
+        id: "explore-readonly",
+        title: "Explore the workspace with read-only tools",
+        status: "pending"
+      },
+      {
+        id: "write-plan",
+        title: "Write the Plan document via update_plan",
+        status: "pending"
+      }
+    ]
+  };
+}
+
+export function markStepChecklistStep(
+  checklist: StepChecklist,
+  stepId: string,
+  status: StepChecklist["steps"][number]["status"],
+  notes?: string
+): StepChecklist {
+  return {
+    ...checklist,
+    steps: checklist.steps.map((step) =>
       step.id === stepId ? { ...step, status, notes: notes ?? step.notes } : step
     )
   };
 }
+
+/** @deprecated Use createExecutionStepChecklist */
+export const createInitialPlan = createExecutionStepChecklist;
+/** @deprecated Use markStepChecklistStep */
+export const markPlanStep = markStepChecklistStep;

@@ -27,7 +27,11 @@ import {
   defaultSessionEventLogDir,
   SessionEventLog
 } from "../logging/sessionEventLog.js";
-import { createInitialPlan, markPlanStep } from "../planning/plan.js";
+import {
+  createExecutionStepChecklist,
+  createPlanningStepChecklist,
+  markStepChecklistStep
+} from "../planning/plan.js";
 import { formatExplicitSkillInstructions } from "../skills/catalog.js";
 import { SkillRegistry } from "../skills/registry.js";
 import { ToolRegistry } from "../tools/registry.js";
@@ -39,14 +43,19 @@ import type {
   HarnessConfig,
   HarnessRunResult,
   HarnessState,
-  Plan,
+  StepChecklist,
   Provider,
   SessionSnapshot,
   Tool,
   ToolCall,
+  ToolDefinition,
   ToolExecutionResult
 } from "../types.js";
 import { createApprovalRequest } from "./approval.js";
+import {
+  isPlanModeToolAllowed,
+  UPDATE_PLAN_TOOL_NAME
+} from "./planMode.js";
 import {
   formatSubagentResult,
   SPAWN_SUBAGENT_TOOL_NAME
@@ -98,6 +107,8 @@ export class HarnessRuntime {
       logger?: EventLogger;
       turnId?: string | null;
       runSubagent?: (prompt: string) => Promise<ToolExecutionResult>;
+      updatePlanDocument?: (markdown: string) => void;
+      planMode?: boolean;
     }
   ): Promise<ToolExecutionResult> {
     const tool = this.toolRegistry.get(toolCall.toolName);
@@ -105,6 +116,20 @@ export class HarnessRuntime {
       return {
         ok: false,
         content: `Unknown tool: ${toolCall.toolName}`
+      };
+    }
+
+    if (options?.planMode && !isPlanModeToolAllowed(toolCall.toolName)) {
+      return {
+        ok: false,
+        content: `Tool not available in Plan Mode: ${toolCall.toolName}`
+      };
+    }
+
+    if (!options?.planMode && toolCall.toolName === UPDATE_PLAN_TOOL_NAME) {
+      return {
+        ok: false,
+        content: "update_plan is only available in Plan Mode"
       };
     }
 
@@ -184,7 +209,8 @@ export class HarnessRuntime {
         cwd: this.config.cwd,
         workspaceBound: this.config.workspaceBound !== false,
         skillRegistry: this.skillRegistry,
-        runSubagent: options?.runSubagent
+        runSubagent: options?.runSubagent,
+        updatePlanDocument: options?.updatePlanDocument
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown tool failure";
@@ -199,7 +225,10 @@ export class HarnessRuntime {
 export class HarnessSession {
   private transcript: ConversationMessage[] = [];
   private context: ContextLayers;
-  private plan: Plan | null = null;
+  private stepChecklist: StepChecklist | null = null;
+  /** Session Plan document (Markdown). */
+  private planDocument: string | null = null;
+  private planMode = false;
   private readonly history: HarnessRunResult[] = [];
   private readonly assemblySnapshots: AssemblySnapshot[] = [];
   private projectInstructionsMeta: ProjectInstructionsLoadResult;
@@ -222,6 +251,75 @@ export class HarnessSession {
     return this.eventLog?.path ?? null;
   }
 
+  /** Enter Plan Mode (Session posture). Re-entry after execute is allowed. */
+  enterPlanMode(): void {
+    this.planMode = true;
+    const goal = this.context.task.trim() || "draft a Plan";
+    this.stepChecklist = createPlanningStepChecklist(goal);
+  }
+
+  /** Leave Plan Mode; keep Plan document as draft. */
+  exitPlanMode(): void {
+    this.planMode = false;
+  }
+
+  /**
+   * Leave Plan Mode, promote Plan → Task, rebuild execution Step checklist.
+   * Transcript / Working set soft-continue. Empty Plan rejects.
+   */
+  executePlan(): { ok: true } | { ok: false; reason: string } {
+    const markdown = this.planDocument?.trim() ?? "";
+    if (!markdown) {
+      return {
+        ok: false,
+        reason: "Plan document is empty — call update_plan before /execute"
+      };
+    }
+    this.planMode = false;
+    this.context = {
+      ...this.context,
+      task: formatTaskFromPlan(markdown)
+    };
+    this.stepChecklist = createExecutionStepChecklist(
+      firstLineGoal(markdown) || "execute Plan"
+    );
+    return { ok: true };
+  }
+
+  private assembleOptions() {
+    return {
+      stepChecklist: this.stepChecklist,
+      planDocument: this.planDocument,
+      planMode: this.planMode
+    };
+  }
+
+  private compactContext(context: ContextLayers = this.context): ContextLayers {
+    return compactIfNeeded(
+      context,
+      this.stepChecklist,
+      this.runtime.config.tokenBudget,
+      undefined,
+      this.runtime.refetchableToolNames(),
+      this.assembleOptions()
+    );
+  }
+
+  private offeredToolDefinitions(): ToolDefinition[] {
+    const all = this.runtime.toolRegistry.definitions();
+    if (this.planMode) {
+      return all.filter((definition) => isPlanModeToolAllowed(definition.name));
+    }
+    return all.filter(
+      (definition) => definition.name !== UPDATE_PLAN_TOOL_NAME
+    );
+  }
+
+  private setPlanDocument(markdown: string, logger?: EventLogger, turnId?: string) {
+    this.planDocument = markdown;
+    logger?.emit("plan_updated", { plan: markdown }, turnId ?? null);
+  }
+
   async runTurn(userInput: string): Promise<HarnessRunResult> {
     const logger = new EventLogger({
       sessionId: this.sessionId,
@@ -234,7 +332,7 @@ export class HarnessSession {
     const transitionKind = decideTaskTransition({
       userInput,
       currentTask: this.context.task,
-      plan: this.plan
+      stepChecklist: this.stepChecklist
     });
     const transitionInput =
       transitionKind === "replace" ? stripTaskSwitchPrefix(userInput) : userInput;
@@ -243,12 +341,14 @@ export class HarnessSession {
     const effectiveInput = mention.strippedInput;
     const skillInstructions = formatExplicitSkillInstructions(mention.skills);
 
-    if (transitionKind === "replace" || !this.plan) {
+    if (transitionKind === "replace" || !this.stepChecklist) {
       this.context = {
         ...this.context,
         task: formatTask(effectiveInput)
       };
-      this.plan = createInitialPlan(effectiveInput);
+      this.stepChecklist = this.planMode
+        ? createPlanningStepChecklist(effectiveInput)
+        : createExecutionStepChecklist(effectiveInput);
     }
 
     this.context = {
@@ -268,13 +368,7 @@ export class HarnessSession {
     };
     this.transcript = [...this.transcript, userMessage];
     this.context = appendWorkingMessages(this.context, [userMessage]);
-    this.context = compactIfNeeded(
-      this.context,
-      this.plan,
-      this.runtime.config.tokenBudget,
-      undefined,
-      this.runtime.refetchableToolNames()
-    );
+    this.context = this.compactContext();
 
     logger.emit(
       "run_started",
@@ -282,24 +376,24 @@ export class HarnessSession {
         provider: this.runtime.provider.name,
         input: effectiveInput,
         explicitSkills: mention.skills.map((skill) => skill.name),
-        unknownSkills: mention.unknown
+        unknownSkills: mention.unknown,
+        planMode: this.planMode
       },
       turnId
     );
-    logger.emit("plan_updated", { plan: this.plan }, turnId);
+    logger.emit(
+      "step_checklist_updated",
+      { stepChecklist: this.stepChecklist },
+      turnId
+    );
 
     for (let turn = 0; turn < this.runtime.config.maxTurns; turn += 1) {
       state = transition(logger, turnId, state, "MODEL_TURN");
-      this.context = compactIfNeeded(
-        this.context,
-        this.plan,
-        this.runtime.config.tokenBudget,
-        undefined,
-        this.runtime.refetchableToolNames()
-      );
-      const assembledSystem = assembleSystemPrompt(this.context, this.plan);
+      this.context = this.compactContext();
+      const assembleOpts = this.assembleOptions();
+      const assembledSystem = assembleSystemPrompt(this.context, assembleOpts);
       const assembledMessages = assembleProviderMessages(this.context);
-      const assemblySnapshot = createAssemblySnapshot(this.context, this.plan);
+      const assemblySnapshot = createAssemblySnapshot(this.context, assembleOpts);
       this.assemblySnapshots.push(assemblySnapshot);
 
       let promptDumpPath: string | null = null;
@@ -332,7 +426,8 @@ export class HarnessSession {
           environment: this.context.environment,
           tokenEstimate: assemblySnapshot.tokenEstimate,
           compaction: this.context.compaction,
-          promptDumpPath
+          promptDumpPath,
+          planMode: this.planMode
         },
         turnId
       );
@@ -342,7 +437,7 @@ export class HarnessSession {
         response = await this.runtime.provider.sendTurn({
           systemPrompt: assembledSystem,
           messages: assembledMessages,
-          tools: this.runtime.toolRegistry.definitions()
+          tools: this.offeredToolDefinitions()
         });
       } catch (error: unknown) {
         state = transition(logger, turnId, state, "ERROR");
@@ -372,10 +467,15 @@ export class HarnessSession {
 
       if (response.stopReason === "completed" && response.assistantMessage) {
         state = transition(logger, turnId, state, "DONE");
-        this.plan = markPlanStep(this.plan, "understand-request", "done");
-        this.plan = markPlanStep(this.plan, "use-tools", "done");
-        this.plan = markPlanStep(this.plan, "report", "done");
-        logger.emit("plan_updated", { plan: this.plan }, turnId);
+        this.stepChecklist = markChecklistComplete(
+          this.stepChecklist!,
+          this.planMode
+        );
+        logger.emit(
+          "step_checklist_updated",
+          { stepChecklist: this.stepChecklist },
+          turnId
+        );
         output = response.assistantMessage.content;
         logger.emit("turn_finished", { output }, turnId);
         break;
@@ -388,9 +488,16 @@ export class HarnessSession {
         break;
       }
 
-      this.plan = markPlanStep(this.plan, "understand-request", "done");
-      this.plan = markPlanStep(this.plan, "use-tools", "in_progress");
-      logger.emit("plan_updated", { plan: this.plan }, turnId);
+      this.stepChecklist = markChecklistToolsInProgress(
+        this.stepChecklist!,
+        this.planMode,
+        response.toolCalls
+      );
+      logger.emit(
+        "step_checklist_updated",
+        { stepChecklist: this.stepChecklist },
+        turnId
+      );
       state = transition(logger, turnId, state, "TOOL_DISPATCH");
 
       const toolMessages: ConversationMessage[] = [];
@@ -399,7 +506,13 @@ export class HarnessSession {
         const toolResult = await this.runtime.executeTool(toolCall, {
           logger,
           turnId,
-          runSubagent: (prompt) => this.runSubagent(prompt, logger)
+          planMode: this.planMode,
+          updatePlanDocument: this.planMode
+            ? (markdown) => this.setPlanDocument(markdown, logger, turnId)
+            : undefined,
+          runSubagent: this.planMode
+            ? undefined
+            : (prompt) => this.runSubagent(prompt, logger)
         });
         logger.emit("tool_result", { toolCall, toolResult }, turnId);
         toolMessages.push({
@@ -413,13 +526,7 @@ export class HarnessSession {
 
       this.transcript = [...this.transcript, ...toolMessages];
       this.context = appendWorkingMessages(this.context, toolMessages);
-      this.context = compactIfNeeded(
-        this.context,
-        this.plan,
-        this.runtime.config.tokenBudget,
-        undefined,
-        this.runtime.refetchableToolNames()
-      );
+      this.context = this.compactContext();
       state = transition(logger, turnId, state, "TOOL_RESULT");
     }
 
@@ -430,11 +537,13 @@ export class HarnessSession {
     }
 
     logger.emit("run_finished", { finalState: state, output }, turnId);
+    const checklist = this.stepChecklist!;
     const result: HarnessRunResult = {
       finalState: state,
       output,
       events: logger.snapshot(),
-      plan: this.plan!
+      stepChecklist: checklist,
+      plan: checklist
     };
     this.history.push(result);
     return result;
@@ -456,7 +565,11 @@ export class HarnessSession {
     const turnId = randomUUID();
     const childTools = this.runtime.toolRegistry
       .definitions()
-      .filter((definition) => definition.name !== SPAWN_SUBAGENT_TOOL_NAME);
+      .filter(
+        (definition) =>
+          definition.name !== SPAWN_SUBAGENT_TOOL_NAME &&
+          definition.name !== UPDATE_PLAN_TOOL_NAME
+      );
     const refetchable = new Set(
       childTools.filter((definition) => definition.refetchable).map((d) => d.name)
     );
@@ -488,8 +601,12 @@ export class HarnessSession {
       skillCatalog: this.runtime.skillRegistry.catalogText(),
       task: formatTask(prompt)
     });
-    let plan: Plan = createInitialPlan(prompt);
-    childLogger.emit("plan_updated", { plan }, turnId);
+    let stepChecklist: StepChecklist = createExecutionStepChecklist(prompt);
+    childLogger.emit(
+      "step_checklist_updated",
+      { stepChecklist },
+      turnId
+    );
 
     const userMessage: ConversationMessage = {
       role: "user",
@@ -498,7 +615,7 @@ export class HarnessSession {
     context = appendWorkingMessages(context, [userMessage]);
     context = compactIfNeeded(
       context,
-      plan,
+      stepChecklist,
       this.runtime.config.tokenBudget,
       undefined,
       refetchable
@@ -511,12 +628,12 @@ export class HarnessSession {
       state = transition(childLogger, turnId, state, "MODEL_TURN");
       context = compactIfNeeded(
         context,
-        plan,
+        stepChecklist,
         this.runtime.config.tokenBudget,
         undefined,
         refetchable
       );
-      const assembledSystem = assembleSystemPrompt(context, plan);
+      const assembledSystem = assembleSystemPrompt(context, stepChecklist);
       const assembledMessages = assembleProviderMessages(context);
 
       childLogger.emit(
@@ -526,7 +643,8 @@ export class HarnessSession {
           nested: true,
           task: context.task,
           workingSetCount: context.workingSet.length,
-          tokenEstimate: createAssemblySnapshot(context, plan).tokenEstimate
+          tokenEstimate: createAssemblySnapshot(context, stepChecklist)
+            .tokenEstimate
         },
         turnId
       );
@@ -563,10 +681,12 @@ export class HarnessSession {
 
       if (response.stopReason === "completed" && response.assistantMessage) {
         state = transition(childLogger, turnId, state, "DONE");
-        plan = markPlanStep(plan, "understand-request", "done");
-        plan = markPlanStep(plan, "use-tools", "done");
-        plan = markPlanStep(plan, "report", "done");
-        childLogger.emit("plan_updated", { plan }, turnId);
+        stepChecklist = markChecklistComplete(stepChecklist, false);
+        childLogger.emit(
+          "step_checklist_updated",
+          { stepChecklist },
+          turnId
+        );
         output = response.assistantMessage.content;
         childLogger.emit("turn_finished", { output }, turnId);
         break;
@@ -579,9 +699,16 @@ export class HarnessSession {
         break;
       }
 
-      plan = markPlanStep(plan, "understand-request", "done");
-      plan = markPlanStep(plan, "use-tools", "in_progress");
-      childLogger.emit("plan_updated", { plan }, turnId);
+      stepChecklist = markChecklistToolsInProgress(
+        stepChecklist,
+        false,
+        response.toolCalls
+      );
+      childLogger.emit(
+        "step_checklist_updated",
+        { stepChecklist },
+        turnId
+      );
       state = transition(childLogger, turnId, state, "TOOL_DISPATCH");
 
       const toolMessages: ConversationMessage[] = [];
@@ -605,7 +732,7 @@ export class HarnessSession {
       context = appendWorkingMessages(context, toolMessages);
       context = compactIfNeeded(
         context,
-        plan,
+        stepChecklist,
         this.runtime.config.tokenBudget,
         undefined,
         refetchable
@@ -652,18 +779,19 @@ export class HarnessSession {
   formatContextInventory(): string {
     return formatContextInventory(
       this.context,
-      this.plan,
+      this.stepChecklist,
       this.runtime.config.tokenBudget,
       {
         sources: this.projectInstructionsMeta.sources,
         truncated: this.projectInstructionsMeta.truncated
-      }
+      },
+      { planDocument: this.planDocument, planMode: this.planMode }
     );
   }
 
   /**
    * Re-run Project instructions discovery and replace the Root set layer.
-   * Does not clear Transcript / Plan / Working set.
+   * Does not clear Transcript / Step checklist / Plan / Working set.
    */
   reloadProjectInstructions(): ProjectInstructionsLoadResult {
     this.projectInstructionsMeta = this.loadInstructions();
@@ -676,7 +804,9 @@ export class HarnessSession {
 
   clear(): void {
     this.transcript = [];
-    this.plan = null;
+    this.stepChecklist = null;
+    this.planDocument = null;
+    this.planMode = false;
     this.history.length = 0;
     this.assemblySnapshots.length = 0;
     const projectInstructions = this.context.projectInstructions;
@@ -712,7 +842,14 @@ export class HarnessSession {
         pinned: this.context.pinned.map((item) => ({ ...item })),
         compaction: { ...this.context.compaction }
       },
-      plan: this.plan,
+      stepChecklist: this.stepChecklist
+        ? {
+            ...this.stepChecklist,
+            steps: this.stepChecklist.steps.map((step) => ({ ...step }))
+          }
+        : null,
+      plan: this.planDocument,
+      planMode: this.planMode,
       history: [...this.history],
       assemblySnapshots: this.assemblySnapshots.map((item) => ({
         ...item,
@@ -749,6 +886,62 @@ export function createHarnessSession(runtime: HarnessRuntime): HarnessSession {
 
 function formatTask(userInput: string): string {
   return `Goal: ${userInput}\nAcceptance: complete the request and report outcomes.`;
+}
+
+function formatTaskFromPlan(planMarkdown: string): string {
+  return `Goal and acceptance (from Plan):\n${planMarkdown}`;
+}
+
+function firstLineGoal(planMarkdown: string): string {
+  const line = planMarkdown
+    .split("\n")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0);
+  return line?.replace(/^#+\s*/, "") ?? "";
+}
+
+function markChecklistComplete(
+  checklist: StepChecklist,
+  planMode: boolean
+): StepChecklist {
+  if (planMode) {
+    let next = markStepChecklistStep(checklist, "clarify-goal", "done");
+    next = markStepChecklistStep(next, "explore-readonly", "done");
+    const writeStatus = checklist.steps.find(
+      (step) => step.id === "write-plan"
+    )?.status;
+    if (writeStatus === "in_progress" || writeStatus === "done") {
+      next = markStepChecklistStep(next, "write-plan", "done");
+    }
+    return next;
+  }
+  let next = markStepChecklistStep(checklist, "understand-request", "done");
+  next = markStepChecklistStep(next, "use-tools", "done");
+  next = markStepChecklistStep(next, "report", "done");
+  return next;
+}
+
+function markChecklistToolsInProgress(
+  checklist: StepChecklist,
+  planMode: boolean,
+  toolCalls: ToolCall[]
+): StepChecklist {
+  if (planMode) {
+    let next = markStepChecklistStep(checklist, "clarify-goal", "done");
+    const wrotePlan = toolCalls.some(
+      (call) => call.toolName === UPDATE_PLAN_TOOL_NAME
+    );
+    if (wrotePlan) {
+      next = markStepChecklistStep(next, "explore-readonly", "done");
+      next = markStepChecklistStep(next, "write-plan", "in_progress");
+    } else {
+      next = markStepChecklistStep(next, "explore-readonly", "in_progress");
+    }
+    return next;
+  }
+  let next = markStepChecklistStep(checklist, "understand-request", "done");
+  next = markStepChecklistStep(next, "use-tools", "in_progress");
+  return next;
 }
 
 function formatEnvironment(config: HarnessConfig): string {

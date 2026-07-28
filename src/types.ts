@@ -19,6 +19,7 @@ export type EventType =
   | "run_started"
   | "state_transition"
   | "plan_updated"
+  | "step_checklist_updated"
   | "model_request"
   | "model_response"
   | "tool_call"
@@ -113,6 +114,11 @@ export interface ToolExecutionContext {
    * Absent inside a Subagent so depth stays 1.
    */
   runSubagent?: (prompt: string) => Promise<ToolExecutionResult>;
+  /**
+   * Plan Mode callback: write the Session Plan document (Markdown).
+   * Absent outside Plan Mode so update_plan fails closed.
+   */
+  updatePlanDocument?: (markdown: string) => void;
 }
 
 export interface ToolExecutionResult {
@@ -134,17 +140,23 @@ export interface Provider {
   sendTurn(request: ProviderTurnRequest): Promise<ProviderTurnResponse>;
 }
 
-export interface PlanStep {
+export interface StepChecklistStep {
   id: string;
   title: string;
   status: "pending" | "in_progress" | "done";
   notes?: string;
 }
 
-export interface Plan {
+/** Progress layer injected into the Assembled prompt (not the Plan document). */
+export interface StepChecklist {
   goal: string;
-  steps: PlanStep[];
+  steps: StepChecklistStep[];
 }
+
+/** @deprecated Use StepChecklistStep */
+export type PlanStep = StepChecklistStep;
+/** @deprecated Use StepChecklist — Plan now means the Markdown document */
+export type Plan = StepChecklist;
 
 export interface PinnedArtifact {
   id: string;
@@ -192,7 +204,9 @@ export interface AssemblySnapshot {
     workingSetRoles: Array<ConversationMessage["role"]>;
     pinned: PinnedArtifact[];
     planGoal: string | null;
-    planSteps: Array<{ id: string; status: PlanStep["status"] }>;
+    planSteps: Array<{ id: string; status: StepChecklistStep["status"] }>;
+    planDocument: string | null;
+    planMode: boolean;
   };
 }
 
@@ -255,7 +269,9 @@ export interface HarnessRunResult {
   finalState: HarnessState;
   output: string;
   events: HarnessEvent[];
-  plan: Plan;
+  stepChecklist: StepChecklist;
+  /** @deprecated Use stepChecklist */
+  plan: StepChecklist;
 }
 
 export interface SessionSnapshot {
@@ -263,7 +279,10 @@ export interface SessionSnapshot {
   /** @deprecated Use transcript. Kept temporarily for migration clarity in callers. */
   messages: ConversationMessage[];
   context: ContextLayers;
-  plan: Plan | null;
+  stepChecklist: StepChecklist | null;
+  /** Session Plan document (Markdown); null when empty/cleared. */
+  plan: string | null;
+  planMode: boolean;
   history: HarnessRunResult[];
   assemblySnapshots: AssemblySnapshot[];
 }

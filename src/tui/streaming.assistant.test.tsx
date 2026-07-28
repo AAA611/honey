@@ -49,6 +49,7 @@ describe("streaming gap — Session TUI mid-Turn assistant", () => {
           output: `${partialAssistant}ming model.`,
           events: [],
           finalState: "DONE",
+          stepChecklist: { goal: "test", steps: [] },
           plan: { goal: "test", steps: [] }
         };
       }
@@ -129,7 +130,9 @@ function createMocks(overrides: {
         pinned: [],
         compaction: { clearedTools: false, summarized: false }
       },
+      stepChecklist: null,
       plan: null,
+      planMode: false,
       history: [],
       assemblySnapshots: []
     }),

@@ -211,6 +211,39 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           ...current,
           formatReloadNotice(loaded)
         ]);
+        return;
+      }
+      if (item.id === "plan") {
+        props.session.enterPlanMode();
+        setNotices((current) => [...current, "Plan Mode on (read-only)."]);
+        return;
+      }
+      if (item.id === "plan-exit") {
+        props.session.exitPlanMode();
+        setNotices((current) => [...current, "Plan Mode off (draft kept)."]);
+        return;
+      }
+      if (item.id === "execute") {
+        const result = props.session.executePlan();
+        if (!result.ok) {
+          setNotices((current) => [...current, result.reason]);
+          return;
+        }
+        setNotices((current) => [
+          ...current,
+          "Plan Mode off — executing Plan as Task."
+        ]);
+        setBusy(true);
+        try {
+          await props.session.runTurn("Execute the accepted Plan.");
+          setMessages([...props.session.snapshot().transcript]);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setNotices((current) => [...current, `Error: ${message}`]);
+        } finally {
+          setBusy(false);
+        }
+        return;
       }
     },
     [exit, props.session, pushContextNotice, setComposerValue]
@@ -244,6 +277,41 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         const loaded = props.session.reloadProjectInstructions();
         setNotices((current) => [...current, formatReloadNotice(loaded)]);
         setComposerValue("");
+        return;
+      }
+      if (line === "/plan" || line === "plan") {
+        props.session.enterPlanMode();
+        setNotices((current) => [...current, "Plan Mode on (read-only)."]);
+        setComposerValue("");
+        return;
+      }
+      if (line === "/plan-exit" || line === "plan-exit") {
+        props.session.exitPlanMode();
+        setNotices((current) => [...current, "Plan Mode off (draft kept)."]);
+        setComposerValue("");
+        return;
+      }
+      if (line === "/execute" || line === "execute") {
+        const result = props.session.executePlan();
+        setComposerValue("");
+        if (!result.ok) {
+          setNotices((current) => [...current, result.reason]);
+          return;
+        }
+        setNotices((current) => [
+          ...current,
+          "Plan Mode off — executing Plan as Task."
+        ]);
+        setBusy(true);
+        try {
+          await props.session.runTurn("Execute the accepted Plan.");
+          setMessages([...props.session.snapshot().transcript]);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setNotices((current) => [...current, `Error: ${message}`]);
+        } finally {
+          setBusy(false);
+        }
         return;
       }
       if (line === "/" || line === "/skills") {

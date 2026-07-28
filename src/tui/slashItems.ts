@@ -1,6 +1,13 @@
 import type { SkillManifest } from "../skills/types.js";
 
-export type SlashCommandId = "context" | "reload-instructions" | "clear" | "exit";
+export type SlashCommandId =
+  | "context"
+  | "reload-instructions"
+  | "clear"
+  | "plan"
+  | "execute"
+  | "plan-exit"
+  | "exit";
 
 export type SlashItem =
   | {
@@ -33,9 +40,24 @@ const BUILTIN_COMMANDS: Array<{
     description: "Reload Project instructions from AGENTS.md sources"
   },
   {
+    id: "plan",
+    label: "/plan",
+    description: "Enter Plan Mode (read-only; produce a Plan document)"
+  },
+  {
+    id: "execute",
+    label: "/execute",
+    description: "Leave Plan Mode and execute the current Plan as Task"
+  },
+  {
+    id: "plan-exit",
+    label: "/plan-exit",
+    description: "Leave Plan Mode and keep the Plan as a draft"
+  },
+  {
     id: "clear",
     label: "/clear",
-    description: "Clear Transcript, Plan, and Working set"
+    description: "Clear Transcript, Step checklist, Plan, and Working set"
   },
   {
     id: "exit",

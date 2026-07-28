@@ -62,7 +62,7 @@ describe("HarnessRuntime", () => {
     );
     for (const request of recorder.requests) {
       expect(request.systemPrompt).toContain("Task:");
-      expect(request.systemPrompt).toContain("Plan:");
+      expect(request.systemPrompt).toContain("Step checklist:");
     }
     const firstUser = recorder.requests[0]?.messages.find(
       (message) => message.role === "user"
@@ -123,7 +123,7 @@ FOLLOW_DEMO_SKILL
     );
   });
 
-  it("keeps Task framing distinct from Plan steps in Session snapshot", async () => {
+  it("keeps Task framing distinct from Step checklist in Session snapshot", async () => {
     const dir = await makeFixtureDir();
     const session = createHarnessSession(createRuntime(dir));
 
@@ -131,10 +131,10 @@ FOLLOW_DEMO_SKILL
 
     const snapshot = session.snapshot();
     expect(snapshot.context.task).toContain("read: note.txt");
-    expect(snapshot.plan?.goal).toBe("read: note.txt");
-    expect(snapshot.plan?.steps.length).toBeGreaterThan(0);
+    expect(snapshot.stepChecklist?.goal).toBe("read: note.txt");
+    expect(snapshot.stepChecklist?.steps.length).toBeGreaterThan(0);
     expect(snapshot.context.task).not.toEqual(
-      snapshot.plan?.steps.map((step) => step.title).join("\n")
+      snapshot.stepChecklist?.steps.map((step) => step.title).join("\n")
     );
   });
 
@@ -317,7 +317,7 @@ FOLLOW_DEMO_SKILL
       );
     }
     expect(snapshot.context.task).toContain("read: big.txt");
-    expect(snapshot.plan).not.toBeNull();
+    expect(snapshot.stepChecklist).not.toBeNull();
   });
 
   it("summarizes older Working set while preserving Root set under sustained pressure", async () => {
@@ -334,7 +334,7 @@ FOLLOW_DEMO_SKILL
     const snapshot = session.snapshot();
     expect(snapshot.context.summary.length).toBeGreaterThan(0);
     expect(snapshot.context.task.length).toBeGreaterThan(0);
-    expect(snapshot.plan).not.toBeNull();
+    expect(snapshot.stepChecklist).not.toBeNull();
     expect(snapshot.context.environment).toContain(dir);
   });
 
@@ -363,15 +363,15 @@ FOLLOW_DEMO_SKILL
 
     await session.runTurn("/new build a token budget");
     expect(session.snapshot().context.task).toContain("build a token budget");
-    expect(session.snapshot().plan?.goal).toContain("build a token budget");
+    expect(session.snapshot().stepChecklist?.goal).toContain("build a token budget");
   });
 
-  it("hard-switches Task when Plan is complete and the next goal looks new", async () => {
+  it("hard-switches Task when Step checklist is complete and the next goal looks new", async () => {
     const dir = await makeFixtureDir();
     const session = createHarnessSession(createRuntime(dir));
 
     await session.runTurn("hello there");
-    const completed = session.snapshot().plan;
+    const completed = session.snapshot().stepChecklist;
     expect(completed?.steps.every((step) => step.status === "done")).toBe(true);
 
     await session.runTurn(
@@ -409,7 +409,9 @@ FOLLOW_DEMO_SKILL
     const snapshot = session.snapshot();
     expect(snapshot.transcript).toEqual([]);
     expect(snapshot.context.workingSet).toEqual([]);
+    expect(snapshot.stepChecklist).toBeNull();
     expect(snapshot.plan).toBeNull();
+    expect(snapshot.planMode).toBe(false);
     expect(snapshot.context.task).toBe("");
   });
 

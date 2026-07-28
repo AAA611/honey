@@ -30,7 +30,7 @@ Honey 是一个小而可检视的 agent 运行时，用来研究现代 coding ag
 - patch-first 编辑
 - guarded vs safe 的 Tool 执行边界
 - 分层 context 与 summarization
-- 轻量 Plan
+- Step checklist（进度层）与 Plan Mode（只读产规格）
 - 结构化事件日志
 - eval fixture 与 runtime 测试
 - Skill 包发现、目录注入与脚本执行
@@ -62,7 +62,8 @@ Honey 瞄准中间地带：
 
 - 显式状态机：`USER_INPUT -> MODEL_TURN -> TOOL_DISPATCH -> TOOL_RESULT -> DONE/ERROR`
 - Provider 抽象，规范化 tool-call 响应
-- 轻量 Plan，带步骤状态跟踪
+- Step checklist：注入 Assembled prompt 的轻量步骤进度
+- Plan Mode：Session 只读姿态（`/plan` / `/execute` / `/plan-exit`），经 `update_plan` 产出 Session 侧 Markdown Plan 文档
 - 结构化事件日志，便于 Run / Turn 检视
 - Session event log：默认开启的 JSONL 时间线，写在 `.honey/session-logs/`（可用 `--no-session-event-log` 关闭；用 `--session-event-log-dir` 或 `HONEY_SESSION_EVENT_LOG_DIR` 覆盖目录）
 
@@ -70,10 +71,12 @@ Honey 瞄准中间地带：
 
 - `read_file`
 - `search_workspace`
+- `update_plan`（仅 Plan Mode）
 - `exec_command`
 - `apply_patch`
 - `run_tests`
 - `run_skill_script`
+- `spawn_subagent`
 
 ### Connectors (MCP)
 
@@ -249,10 +252,10 @@ src/
   evals/                 # 最小 eval 入口
   logging/               # 结构化事件日志
   mcp/                   # Connector 配置加载与 MCP HTTP 客户端
-  planning/              # 轻量 Plan 状态
+  planning/              # Step checklist 与规划向进度
   plugins/               # Plugin 分发占位类型
   providers/             # Provider 抽象与 scripted Provider
-  runtime/               # Harness 状态机
+  runtime/               # Harness 状态机与 Plan Mode 姿态
   skills/                # Skill 发现、解析、catalog、bundled Skills
   tools/                 # Tool 定义、registry、session manager
   tui/                   # Session TUI（Ink + React）
@@ -262,6 +265,7 @@ src/
 
 - `specs/harness-v0-spec.md` — V0 产品与架构规格
 - `CONTEXT.md` — 项目 glossary 与领域词汇
+- `docs/adr/0013-plan-mode.md` — Plan Mode 决策
 - `AGENTS.md` — 本地 agent 工作流约定
 - `docs/adr/` — 架构决策记录
 

@@ -1,4 +1,4 @@
-import type { ContextLayers, Plan } from "../types.js";
+import type { ContextLayers, StepChecklist } from "../types.js";
 import type { ProjectInstructionsSources } from "./projectInstructions.js";
 import { estimateAssembledTokens } from "./assemble.js";
 import { estimateTokens } from "./tokens.js";
@@ -10,22 +10,34 @@ export interface ProjectInstructionsInventoryMeta {
 
 export function formatContextInventory(
   layers: ContextLayers,
-  plan: Plan | null,
+  stepChecklist: StepChecklist | null,
   tokenBudget: number,
-  projectInstructionsMeta?: ProjectInstructionsInventoryMeta
+  projectInstructionsMeta?: ProjectInstructionsInventoryMeta,
+  extras?: { planDocument?: string | null; planMode?: boolean }
 ): string {
-  const total = estimateAssembledTokens(layers, plan);
+  const total = estimateAssembledTokens(layers, {
+    stepChecklist,
+    planDocument: extras?.planDocument ?? null,
+    planMode: extras?.planMode ?? false
+  });
+  const planDoc = extras?.planDocument?.trim() ?? "";
   const lines = [
     "Context inventory",
     `token estimate: ${total} / budget ${tokenBudget}`,
     `compaction: toolsCleared=${layers.compaction.clearedTools} summarized=${layers.compaction.summarized}`,
+    `planMode: ${extras?.planMode ? "on" : "off"}`,
     "",
     "Root set:",
     `  System: ${estimateTokens(layers.system)} tokens`,
     `  Project instructions: ${estimateTokens(layers.projectInstructions)} tokens`,
     ...formatProjectInstructionsSources(projectInstructionsMeta),
     `  Task: ${preview(layers.task)}`,
-    `  Plan: ${plan ? `${plan.steps.length} steps (${plan.goal})` : "(none)"}`,
+    `  Step checklist: ${
+      stepChecklist
+        ? `${stepChecklist.steps.length} steps (${stepChecklist.goal})`
+        : "(none)"
+    }`,
+    `  Plan: ${planDoc ? preview(planDoc) : "(empty)"}`,
     `  Environment: ${preview(layers.environment)}`,
     `  Skill catalog: ${layers.skillCatalog.trim() ? preview(layers.skillCatalog) : "(empty)"}`,
     `  Skill instructions: ${layers.skillInstructions.trim() ? preview(layers.skillInstructions) : "(none)"}`,

@@ -1,7 +1,7 @@
 import type {
   ContextLayers,
   ConversationMessage,
-  Plan,
+  StepChecklist,
   SummaryWriter
 } from "../types.js";
 import { estimateAssembledTokens } from "./assemble.js";
@@ -59,7 +59,7 @@ export const deterministicSummaryWriter: SummaryWriter = {
  * 动的主要是 Working set 里的大块和「变成 Summary 的旧对话」。
  *
  * @param layers - 当前上下文分层（会先浅拷贝再改，不原地突变入参）。
- * @param plan - 当前 Plan；估 token 时要算进 Assembled prompt。
+ * @param stepChecklist - 当前 Step checklist；估 token 时要算进 Assembled prompt。
  * @param tokenBudget - 本会话允许的 Assembled prompt 上限。
  * @param summaryWriter - 把挤出的消息写成 Summary 的策略；默认确定性短摘要。
  * @param refetchableTools - 可再读工具名；默认内置集合。
@@ -67,11 +67,17 @@ export const deterministicSummaryWriter: SummaryWriter = {
  */
 export function compactIfNeeded(
   layers: ContextLayers,
-  plan: Plan | null,
+  stepChecklist: StepChecklist | null,
   tokenBudget: number,
   summaryWriter: SummaryWriter = deterministicSummaryWriter,
-  refetchableTools: ReadonlySet<string> = BUILTIN_REFETCHABLE_TOOLS
+  refetchableTools: ReadonlySet<string> = BUILTIN_REFETCHABLE_TOOLS,
+  assembleExtras?: { planDocument?: string | null; planMode?: boolean }
 ): ContextLayers {
+  const estimateOpts = {
+    stepChecklist,
+    planDocument: assembleExtras?.planDocument ?? null,
+    planMode: assembleExtras?.planMode ?? false
+  };
   let next: ContextLayers = {
     ...layers,
     workingSet: layers.workingSet.map((message) => ({ ...message })),
@@ -81,7 +87,7 @@ export function compactIfNeeded(
   };
 
   // 没超预算：减压没必要
-  if (estimateAssembledTokens(next, plan) <= tokenBudget) {
+  if (estimateAssembledTokens(next, estimateOpts) <= tokenBudget) {
     return next;
   }
 
@@ -89,12 +95,12 @@ export function compactIfNeeded(
   next = clearRefetchableToolResults(next, refetchableTools);
   next.compaction = { ...next.compaction, clearedTools: true };
 
-  if (estimateAssembledTokens(next, plan) <= tokenBudget) {
+  if (estimateAssembledTokens(next, estimateOpts) <= tokenBudget) {
     return next;
   }
 
   // 第二刀：仍超 → 把 Working set 头部压进 Summary
-  return summarizeOverflow(next, plan, tokenBudget, summaryWriter);
+  return summarizeOverflow(next, estimateOpts, tokenBudget, summaryWriter);
 }
 
 /**
@@ -149,7 +155,11 @@ function shrinkToolContent(message: ConversationMessage): ConversationMessage {
  */
 function summarizeOverflow(
   layers: ContextLayers,
-  plan: Plan | null,
+  estimateOpts: {
+    stepChecklist: StepChecklist | null;
+    planDocument?: string | null;
+    planMode?: boolean;
+  },
   tokenBudget: number,
   summaryWriter: SummaryWriter
 ): ContextLayers {
@@ -158,7 +168,8 @@ function summarizeOverflow(
 
   while (
     workingSet.length > 2 &&
-    estimateAssembledTokens({ ...layers, workingSet, summary }, plan) > tokenBudget
+    estimateAssembledTokens({ ...layers, workingSet, summary }, estimateOpts) >
+      tokenBudget
   ) {
     const splitAt = findPairSafeSplit(workingSet);
     if (splitAt <= 0) {
@@ -171,7 +182,7 @@ function summarizeOverflow(
 
   // 对话已尽量收束仍超预算：再砍残留的大工具输出
   while (
-    estimateAssembledTokens({ ...layers, workingSet, summary }, plan) >
+    estimateAssembledTokens({ ...layers, workingSet, summary }, estimateOpts) >
       tokenBudget &&
     workingSet.some(
       (message) => message.role === "tool" && message.content.length > 160

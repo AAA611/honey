@@ -242,7 +242,9 @@ function createMocks(): {
         pinned: [],
         compaction: { clearedTools: false, summarized: false }
       },
+      stepChecklist: null,
       plan: null,
+      planMode: false,
       history: [],
       assemblySnapshots: []
     }),

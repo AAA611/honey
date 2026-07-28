@@ -128,6 +128,30 @@ async function runLineRepl(runtime: HarnessRuntime) {
         continue;
       }
 
+      if (line === "plan" || line === "/plan") {
+        session.enterPlanMode();
+        stdout.write("Plan Mode on (read-only).\n");
+        continue;
+      }
+
+      if (line === "plan-exit" || line === "/plan-exit") {
+        session.exitPlanMode();
+        stdout.write("Plan Mode off (draft kept).\n");
+        continue;
+      }
+
+      if (line === "execute" || line === "/execute") {
+        const result = session.executePlan();
+        if (!result.ok) {
+          stdout.write(`${result.reason}\n`);
+          continue;
+        }
+        stdout.write("Plan Mode off — executing Plan as Task.\n");
+        const run = await session.runTurn("Execute the accepted Plan.");
+        stdout.write(`${run.output}\n\n`);
+        continue;
+      }
+
       if (isSkillPickerCommand(line)) {
         const picked = await pickSkill({
           skills: runtime.skillRegistry.list(),
