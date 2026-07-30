@@ -125,10 +125,13 @@ function createMocks(overrides: {
       stepChecklist: null,
       plan: null,
       planMode: false,
+      reasoning: [],
       history: [],
       assemblySnapshots: []
     }),
     runTurn: overrides.runTurn,
+    setStreamListener: () => undefined,
+    setModelCallCompleteListener: () => undefined,
     formatContextInventory: () => "inventory",
     clear: () => undefined,
     end: () => undefined

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { HarnessRuntime, HarnessSession } from "../runtime/harness.js";
 import { formatApprovalPrompt } from "../runtime/approval.js";
 import type { ProjectInstructionsLoadResult } from "../context/projectInstructions.js";
-import type { ConversationMessage } from "../types.js";
+import type { ConversationMessage, ProviderStreamDelta } from "../types.js";
 import { StatusBar } from "./StatusBar.js";
 import { SessionBannerView } from "./SessionBannerView.js";
 import { SlashOverlay } from "./SlashOverlay.js";
@@ -101,6 +101,11 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   const [messages, setMessages] = useState<ConversationMessage[]>(
     () => props.session.snapshot().transcript
   );
+  const [reasoning, setReasoning] = useState<string[]>(
+    () => props.session.snapshot().reasoning ?? []
+  );
+  const [draftAssistant, setDraftAssistant] = useState("");
+  const [reasoningDraft, setReasoningDraft] = useState("");
   const [notices, setNotices] = useState<string[]>([
     "Session TUI ready. Type `/` for commands and Skills."
   ]);
@@ -175,6 +180,37 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       });
   }, [props.runtime]);
 
+  useEffect(() => {
+    const onDelta = (delta: ProviderStreamDelta): void => {
+      if (delta.kind === "assistant_text") {
+        setDraftAssistant((current) => current + delta.text);
+        return;
+      }
+      setReasoningDraft((current) => current + delta.text);
+    };
+    const onModelCallComplete = (): void => {
+      const snap = props.session.snapshot();
+      setMessages([...snap.transcript]);
+      setReasoning([...(snap.reasoning ?? [])]);
+      setDraftAssistant("");
+      setReasoningDraft("");
+    };
+    props.session.setStreamListener?.(onDelta);
+    props.session.setModelCallCompleteListener?.(onModelCallComplete);
+    return () => {
+      props.session.setStreamListener?.(null);
+      props.session.setModelCallCompleteListener?.(null);
+    };
+  }, [props.session]);
+
+  const syncFromSnapshot = useCallback(() => {
+    const snap = props.session.snapshot();
+    setMessages([...snap.transcript]);
+    setReasoning([...(snap.reasoning ?? [])]);
+    setDraftAssistant("");
+    setReasoningDraft("");
+  }, [props.session]);
+
   const contextNoticeSeq = useRef(0);
 
   const pushContextNotice = useCallback(() => {
@@ -210,6 +246,9 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       if (item.id === "clear") {
         props.session.clear();
         setMessages([]);
+        setReasoning([]);
+        setDraftAssistant("");
+        setReasoningDraft("");
         setNotices(["Session cleared."]);
         return;
       }
@@ -248,7 +287,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         setBusy(true);
         try {
           await props.session.runTurn("Execute the accepted Plan.");
-          setMessages([...props.session.snapshot().transcript]);
+          syncFromSnapshot();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           setNotices((current) => [...current, `Error: ${message}`]);
@@ -258,7 +297,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         return;
       }
     },
-    [exit, props.session, pushContextNotice, setComposerValue]
+    [exit, props.session, pushContextNotice, setComposerValue, syncFromSnapshot]
   );
 
   const submit = useCallback(
@@ -276,6 +315,9 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       if (line === "/clear" || line === "clear") {
         props.session.clear();
         setMessages([]);
+        setReasoning([]);
+        setDraftAssistant("");
+        setReasoningDraft("");
         setNotices(["Session cleared."]);
         setComposerValue("");
         return;
@@ -315,9 +357,11 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           "Plan Mode off — executing Plan as Task."
         ]);
         setBusy(true);
+        setDraftAssistant("");
+        setReasoningDraft("");
         try {
           await props.session.runTurn("Execute the accepted Plan.");
-          setMessages([...props.session.snapshot().transcript]);
+          syncFromSnapshot();
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           setNotices((current) => [...current, `Error: ${message}`]);
@@ -332,10 +376,12 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
 
       setBusy(true);
       setComposerValue("");
+      setDraftAssistant("");
+      setReasoningDraft("");
       setMessages((current) => [...current, { role: "user", content: line }]);
       try {
         await props.session.runTurn(line);
-        setMessages([...props.session.snapshot().transcript]);
+        syncFromSnapshot();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setNotices((current) => [...current, `Error: ${message}`]);
@@ -343,7 +389,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         setBusy(false);
       }
     },
-    [exit, props.session, pushContextNotice, setComposerValue]
+    [exit, props.session, pushContextNotice, setComposerValue, syncFromSnapshot]
   );
 
   const onInput = useCallback(
@@ -564,7 +610,14 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         messageCount={messages.length}
       />
       <Box flexDirection="column" paddingX={1} marginY={1}>
-        <TranscriptView messages={messages} notices={notices} thinking={busy} />
+        <TranscriptView
+          messages={messages}
+          notices={notices}
+          reasoning={reasoning}
+          reasoningDraft={reasoningDraft}
+          draftAssistant={draftAssistant}
+          thinking={busy}
+        />
       </Box>
       {slashOpen ? (
         <SlashOverlay

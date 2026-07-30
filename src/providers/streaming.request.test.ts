@@ -1,6 +1,5 @@
 /**
- * Documents ADR-0002: OpenAI-compatible Provider v1 is non-streaming.
- * When streaming lands, flip this assertion and add SSE parsing coverage.
+ * Documents: sendTurn stays non-streaming (ADR-0015 keeps sendTurn + streamTurn).
  *
  * Command:
  *   npx vitest run src/providers/streaming.request.test.ts

@@ -364,6 +364,106 @@ describe("OpenAiCompatibleProvider", () => {
 
     expect(response.toolCalls[0]?.toolName).toBe("web_search_exa");
   });
+
+  it("streamTurn emits assistant_text and reasoning deltas then returns the final response", async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"reasoning_content":"think "}}]}',
+      'data: {"choices":[{"delta":{"reasoning_content":"hard"}}]}',
+      'data: {"choices":[{"delta":{"content":"Hel"}}]}',
+      'data: {"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}',
+      "data: [DONE]",
+      ""
+    ].join("\n");
+
+    const provider = new OpenAiCompatibleProvider({
+      name: "deepseek",
+      apiKey: "test-key",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      transport: async () =>
+        new Response(sse, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" }
+        })
+    });
+
+    const deltas: Array<{ kind: string; text: string }> = [];
+    const response = await provider.streamTurn(
+      {
+        systemPrompt: "You are honey.",
+        messages: [{ role: "user", content: "hi" }],
+        tools: []
+      },
+      (delta) => deltas.push(delta)
+    );
+
+    expect(deltas).toEqual([
+      { kind: "reasoning", text: "think " },
+      { kind: "reasoning", text: "hard" },
+      { kind: "assistant_text", text: "Hel" },
+      { kind: "assistant_text", text: "lo" }
+    ]);
+    expect(response).toMatchObject({
+      stopReason: "completed",
+      reasoning: "think hard",
+      assistantMessage: { role: "assistant", content: "Hello" }
+    });
+  });
+
+  it("emits deltas before the SSE body finishes (incremental read)", async () => {
+    const encoder = new TextEncoder();
+    let releaseRest!: () => void;
+    const restGate = new Promise<void>((resolve) => {
+      releaseRest = resolve;
+    });
+    let sawFirstDelta = false;
+
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(
+          encoder.encode('data: {"choices":[{"delta":{"content":"Hel"}}]}\n\n')
+        );
+        await restGate;
+        controller.enqueue(
+          encoder.encode(
+            'data: {"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}\n\n'
+          )
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
+      }
+    });
+
+    const provider = new OpenAiCompatibleProvider({
+      name: "deepseek",
+      apiKey: "test-key",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      transport: async () =>
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/event-stream" }
+        })
+    });
+
+    const turn = provider.streamTurn(
+      {
+        systemPrompt: "You are honey.",
+        messages: [{ role: "user", content: "hi" }],
+        tools: []
+      },
+      (delta) => {
+        if (delta.kind === "assistant_text" && delta.text === "Hel") {
+          sawFirstDelta = true;
+          releaseRest();
+        }
+      }
+    );
+
+    const response = await turn;
+    expect(sawFirstDelta).toBe(true);
+    expect(response.assistantMessage?.content).toBe("Hello");
+  });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {

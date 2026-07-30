@@ -1,10 +1,7 @@
 /**
- * Feedback loop for: no mid-Turn assistant streaming in the Session TUI.
+ * Feedback loop for: mid-Turn assistant streaming in the Session TUI.
  *
- * User symptom: while the model is generating, Transcript shows no growing
- * assistant text — only the final blob after runTurn resolves.
- *
- * Command (expect RED until streaming UX ships):
+ * Command:
  *   npx vitest run src/tui/streaming.assistant.test.tsx
  */
 import React from "react";
@@ -13,7 +10,7 @@ import { render } from "ink-testing-library";
 import { SessionTuiApp } from "./App.js";
 import type { HarnessRuntime, HarnessSession } from "../runtime/harness.js";
 import { SkillRegistry } from "../skills/registry.js";
-import type { ConversationMessage } from "../types.js";
+import type { ConversationMessage, ProviderStreamDelta } from "../types.js";
 
 const cleanups: Array<() => void> = [];
 
@@ -27,23 +24,24 @@ function settle(ms = 50): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-describe("streaming gap — Session TUI mid-Turn assistant", () => {
-  // Known gap: no mid-Turn assistant delta channel into Transcript.
-  // Remove `.fails` when Session TUI can render partial assistant content.
-  it.fails(
-    "shows partial assistant content while runTurn is still pending",
-    async () => {
+describe("streaming — Session TUI mid-Turn assistant", () => {
+  it("shows partial assistant content while runTurn is still pending", async () => {
     let releaseTurn!: () => void;
     const turnGate = new Promise<void>((resolve) => {
       releaseTurn = resolve;
     });
 
-    // Simulate a Provider that would have already emitted a first delta
-    // before the Turn finishes — the TUI has no channel to show it today.
     const partialAssistant = "Hello from the strea";
+    let streamListener: ((delta: ProviderStreamDelta) => void) | null = null;
 
     const { runtime, session } = createMocks({
+      setStreamListener: (listener) => {
+        streamListener = listener;
+      },
       runTurn: async () => {
+        await settle(30);
+        streamListener?.({ kind: "assistant_text", text: partialAssistant });
+        await settle(30);
         await turnGate;
         return {
           output: `${partialAssistant}ming model.`,
@@ -64,7 +62,7 @@ describe("streaming gap — Session TUI mid-Turn assistant", () => {
     stdin.write("say hi");
     await settle(40);
     stdin.write("\r");
-    await settle(80);
+    await settle(120);
 
     const midTurnFrame = lastFrame() ?? "";
     expect(midTurnFrame, "Turn in progress").toMatch(/running/i);
@@ -72,15 +70,66 @@ describe("streaming gap — Session TUI mid-Turn assistant", () => {
       midTurnFrame,
       "partial assistant text must be visible mid-Turn (streaming UX)"
     ).toContain(partialAssistant);
+    expect(midTurnFrame, "thinking spinner stays while streaming").toMatch(
+      /thinking…/
+    );
 
     releaseTurn();
     await settle(80);
-  }
-  );
+  });
+
+  it("shows Reasoning draft while runTurn is still pending", async () => {
+    let releaseTurn!: () => void;
+    const turnGate = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+
+    const reasoningChunk = "consider the cwd first";
+    let streamListener: ((delta: ProviderStreamDelta) => void) | null = null;
+
+    const { runtime, session } = createMocks({
+      setStreamListener: (listener) => {
+        streamListener = listener;
+      },
+      runTurn: async () => {
+        await settle(30);
+        streamListener?.({ kind: "reasoning", text: reasoningChunk });
+        await settle(30);
+        await turnGate;
+        return {
+          output: "done",
+          events: [],
+          finalState: "DONE",
+          stepChecklist: { goal: "test", steps: [] },
+          plan: { goal: "test", steps: [] }
+        };
+      }
+    });
+
+    const { lastFrame, stdin, unmount } = render(
+      <SessionTuiApp runtime={runtime} session={session} />
+    );
+    cleanups.push(unmount);
+
+    await settle();
+    stdin.write("think");
+    await settle(40);
+    stdin.write("\r");
+    await settle(120);
+
+    const midTurnFrame = lastFrame() ?? "";
+    expect(midTurnFrame).toMatch(/running/i);
+    expect(midTurnFrame).toContain(reasoningChunk);
+    expect(midTurnFrame).toMatch(/reasoning/i);
+
+    releaseTurn();
+    await settle(80);
+  });
 });
 
 function createMocks(overrides: {
   runTurn: HarnessSession["runTurn"];
+  setStreamListener?: HarnessSession["setStreamListener"];
   transcript?: ConversationMessage[];
 }): {
   runtime: HarnessRuntime;
@@ -133,10 +182,13 @@ function createMocks(overrides: {
       stepChecklist: null,
       plan: null,
       planMode: false,
+      reasoning: [],
       history: [],
       assemblySnapshots: []
     }),
     runTurn: overrides.runTurn,
+    setStreamListener: overrides.setStreamListener ?? (() => undefined),
+    setModelCallCompleteListener: () => undefined,
     formatContextInventory: () => "inventory",
     clear: () => undefined,
     end: () => undefined

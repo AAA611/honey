@@ -38,6 +38,7 @@ import type {
   HarnessRunResult,
   StepChecklist,
   Provider,
+  ProviderStreamDelta,
   SessionSnapshot,
   Tool,
   ToolCall,
@@ -257,6 +258,10 @@ export class HarnessSession {
   /** Session Plan document (Markdown). */
   private planDocument: string | null = null;
   private planMode = false;
+  /** Parallel Session Reasoning entries (not Working set / Assembled). */
+  private reasoningEntries: string[] = [];
+  private streamListener: ((delta: ProviderStreamDelta) => void) | null = null;
+  private modelCallCompleteListener: (() => void) | null = null;
   private readonly history: HarnessRunResult[] = [];
   private readonly assemblySnapshots: AssemblySnapshot[] = [];
   private projectInstructionsMeta: ProjectInstructionsLoadResult;
@@ -275,6 +280,23 @@ export class HarnessSession {
     this.eventLog = createSessionEventLog(this.sessionId, this.runtime.config);
   }
 
+  /**
+   * Session TUI registers here for mid-Turn Draft assistant / Reasoning deltas.
+   * Cleared by passing null. Subagent runs do not emit through this listener.
+   */
+  setStreamListener(
+    listener: ((delta: ProviderStreamDelta) => void) | null
+  ): void {
+    this.streamListener = listener;
+  }
+
+  /**
+   * Fired after each Provider model call commits (so TUI can clear Drafts and
+   * refresh committed Reasoning during a tool loop).
+   */
+  setModelCallCompleteListener(listener: (() => void) | null): void {
+    this.modelCallCompleteListener = listener;
+  }
 
   get sessionEventLogPath(): string | null {
     return this.eventLog?.path ?? null;
@@ -463,7 +485,14 @@ export class HarnessSession {
         environment: context.environment,
         compaction: context.compaction,
         planMode: this.planMode
-      })
+      }),
+      onStreamDelta: (delta) => this.streamListener?.(delta),
+      onReasoningCommitted: (reasoning) => {
+        this.reasoningEntries.push(reasoning);
+      },
+      onModelCallComplete: () => {
+        this.modelCallCompleteListener?.();
+      }
     };
 
     const loopResult = await runTurnLoop(scope);
@@ -640,6 +669,7 @@ export class HarnessSession {
     this.stepChecklist = null;
     this.planDocument = null;
     this.planMode = false;
+    this.reasoningEntries = [];
     this.history.length = 0;
     this.assemblySnapshots.length = 0;
     const projectInstructions = this.context.projectInstructions;
@@ -683,6 +713,7 @@ export class HarnessSession {
         : null,
       plan: this.planDocument,
       planMode: this.planMode,
+      reasoning: [...this.reasoningEntries],
       history: [...this.history],
       assemblySnapshots: this.assemblySnapshots.map((item) => ({
         ...item,

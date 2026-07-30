@@ -147,4 +147,54 @@ describe("runTurnLoop", () => {
     expect(result.finalState).toBe("ERROR");
     expect(result.output).toMatch(/max turn limit/i);
   });
+
+  it("prefers streamTurn and forwards deltas without putting Reasoning in Working set", async () => {
+    const deltas: Array<{ kind: string; text: string }> = [];
+    const committed: string[] = [];
+    const provider: Provider = {
+      name: "test",
+      async sendTurn(): Promise<ProviderTurnResponse> {
+        throw new Error("sendTurn should not be used when streamTurn exists");
+      },
+      async streamTurn(_request, onDelta) {
+        onDelta({ kind: "reasoning", text: "plan " });
+        onDelta({ kind: "reasoning", text: "steps" });
+        onDelta({ kind: "assistant_text", text: "Hi" });
+        return {
+          assistantMessage: { role: "assistant", content: "Hi" },
+          toolCalls: [],
+          stopReason: "completed",
+          reasoning: "plan steps"
+        };
+      }
+    };
+
+    const scope = baseScope({
+      provider,
+      onStreamDelta: (delta) => deltas.push(delta),
+      onReasoningCommitted: (text) => committed.push(text)
+    });
+    const result = await runTurnLoop(scope);
+
+    expect(result.finalState).toBe("DONE");
+    expect(deltas).toEqual([
+      { kind: "reasoning", text: "plan " },
+      { kind: "reasoning", text: "steps" },
+      { kind: "assistant_text", text: "Hi" }
+    ]);
+    expect(committed).toEqual(["plan steps"]);
+    expect(
+      scope.context.workingSet.some(
+        (message) =>
+          message.role === "assistant" &&
+          "content" in message &&
+          String(message.content).includes("plan steps")
+      )
+    ).toBe(false);
+    expect(
+      scope.context.workingSet.some(
+        (message) => message.role === "assistant" && message.content === "Hi"
+      )
+    ).toBe(true);
+  });
 });

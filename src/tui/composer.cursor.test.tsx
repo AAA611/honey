@@ -105,12 +105,15 @@ function createMocks(): {
       stepChecklist: null,
       plan: null,
       planMode: false,
+      reasoning: [],
       history: [],
       assemblySnapshots: []
     }),
     runTurn: async () => {
       throw new Error("unused");
     },
+    setStreamListener: () => undefined,
+    setModelCallCompleteListener: () => undefined,
     formatContextInventory: () => "inventory",
     clear: () => undefined,
     end: () => undefined

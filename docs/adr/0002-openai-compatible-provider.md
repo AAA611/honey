@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — non-streaming v1 constraint superseded by [ADR-0016](./0016-streaming-tui-and-reasoning.md)
 
 ## Context
 

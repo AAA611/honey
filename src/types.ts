@@ -88,7 +88,14 @@ export interface ProviderTurnResponse {
   toolCalls: ToolCall[];
   stopReason: "tool_calls" | "completed" | "error";
   usage?: TokenUsage;
+  /** Final Reasoning text when the Provider emitted a deliberation channel. */
+  reasoning?: string;
 }
+
+/** Mid-Turn Provider delta for Session TUI preview (ADR-0015). */
+export type ProviderStreamDelta =
+  | { kind: "assistant_text"; text: string }
+  | { kind: "reasoning"; text: string };
 
 export interface ToolDefinition {
   name: ToolName;
@@ -138,6 +145,15 @@ export interface Tool {
 export interface Provider {
   readonly name: string;
   sendTurn(request: ProviderTurnRequest): Promise<ProviderTurnResponse>;
+  /**
+   * Optional streaming path (ADR-0015). When present, Harness prefers it.
+   * Tool-call argument deltas are not surfaced; they are assembled into the
+   * final ProviderTurnResponse only.
+   */
+  streamTurn?(
+    request: ProviderTurnRequest,
+    onDelta: (delta: ProviderStreamDelta) => void
+  ): Promise<ProviderTurnResponse>;
 }
 
 export interface StepChecklistStep {
@@ -283,6 +299,8 @@ export interface SessionSnapshot {
   /** Session Plan document (Markdown); null when empty/cleared. */
   plan: string | null;
   planMode: boolean;
+  /** Parallel Session Reasoning entries (never Assembled / Working set). */
+  reasoning: string[];
   history: HarnessRunResult[];
   assemblySnapshots: AssemblySnapshot[];
 }

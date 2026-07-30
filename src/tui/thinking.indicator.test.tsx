@@ -136,6 +136,7 @@ function createMocks(overrides: {
       stepChecklist: null,
       plan: null,
       planMode: false,
+      reasoning: [],
       history: [],
       assemblySnapshots: []
     }),
@@ -146,6 +147,8 @@ function createMocks(overrides: {
       }
       return result;
     },
+    setStreamListener: () => undefined,
+    setModelCallCompleteListener: () => undefined,
     formatContextInventory: () => "inventory",
     clear: () => undefined,
     end: () => undefined

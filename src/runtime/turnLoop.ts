@@ -14,6 +14,7 @@ import type {
   ContextLayers,
   HarnessState,
   Provider,
+  ProviderStreamDelta,
   StepChecklist,
   ToolCall,
   ToolDefinition,
@@ -40,6 +41,12 @@ export interface TurnLoopScope {
   /** When set, assistant/tool messages are appended in place (parent Transcript). */
   transcript?: ConversationMessage[];
   executeTool: (toolCall: ToolCall) => Promise<ToolExecutionResult>;
+  /** Mid-Turn Draft assistant / Reasoning preview (Session TUI). */
+  onStreamDelta?: (delta: ProviderStreamDelta) => void;
+  /** Commit final Reasoning into parallel Session state (not Working set). */
+  onReasoningCommitted?: (reasoning: string) => void;
+  /** After each Provider model call finishes (before tool dispatch / DONE). */
+  onModelCallComplete?: () => void;
   recordAssemblySnapshot?: (snapshot: AssemblySnapshot) => void;
   dumpAssembledPrompt?: (args: {
     systemPrompt: string;
@@ -97,11 +104,18 @@ export async function runTurnLoop(scope: TurnLoopScope): Promise<TurnLoopResult>
 
     let response;
     try {
-      response = await scope.provider.sendTurn({
+      const request = {
         systemPrompt: assembledSystem,
         messages: assembledMessages,
         tools: scope.tools
-      });
+      };
+      if (scope.provider.streamTurn) {
+        response = await scope.provider.streamTurn(request, (delta) => {
+          scope.onStreamDelta?.(delta);
+        });
+      } else {
+        response = await scope.provider.sendTurn(request);
+      }
     } catch (error: unknown) {
       state = transition(logger, turnId, state, "ERROR");
       output =
@@ -110,12 +124,17 @@ export async function runTurnLoop(scope: TurnLoopScope): Promise<TurnLoopResult>
       break;
     }
 
+    if (response.reasoning && response.reasoning.length > 0) {
+      scope.onReasoningCommitted?.(response.reasoning);
+    }
+
     logger.emit(
       "model_response",
       {
         stopReason: response.stopReason,
         toolCalls: response.toolCalls,
         assistantMessage: response.assistantMessage?.content,
+        reasoning: response.reasoning,
         usage: response.usage
       },
       turnId
@@ -124,6 +143,8 @@ export async function runTurnLoop(scope: TurnLoopScope): Promise<TurnLoopResult>
     if (response.assistantMessage) {
       appendMessages(scope, [response.assistantMessage]);
     }
+
+    scope.onModelCallComplete?.();
 
     if (response.stopReason === "completed" && response.assistantMessage) {
       state = transition(logger, turnId, state, "DONE");

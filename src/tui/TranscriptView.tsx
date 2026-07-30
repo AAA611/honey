@@ -6,9 +6,21 @@ import { ThinkingIndicator } from "./ThinkingIndicator.js";
 export function TranscriptView(props: {
   messages: ConversationMessage[];
   notices: string[];
+  /** Committed Reasoning entries (parallel Session state). */
+  reasoning?: string[];
+  /** Mid-Turn Reasoning preview (not yet committed). */
+  reasoningDraft?: string;
+  /** Mid-Turn Draft assistant preview (not yet in Transcript). */
+  draftAssistant?: string;
   /** When true, show an animated thinking placeholder under the transcript. */
   thinking?: boolean;
 }): React.ReactElement {
+  const reasoningEntries = props.reasoning ?? [];
+  const reasoningDraft = props.reasoningDraft ?? "";
+  const draftAssistant = props.draftAssistant ?? "";
+  const hasDraft =
+    reasoningDraft.length > 0 || draftAssistant.length > 0;
+
   return (
     <Box flexDirection="column">
       {props.notices.map((notice, index) => (
@@ -27,8 +39,36 @@ export function TranscriptView(props: {
           <Text>{formatMessage(message)}</Text>
         </Box>
       ))}
+      {reasoningEntries.map((entry, index) => (
+        <Box key={`reasoning-${index}`} marginBottom={1} flexDirection="column">
+          <Text color="gray" bold>
+            reasoning
+          </Text>
+          <Text dimColor>{entry}</Text>
+        </Box>
+      ))}
+      {reasoningDraft.length > 0 ? (
+        <Box marginBottom={1} flexDirection="column">
+          <Text color="gray" bold>
+            reasoning
+          </Text>
+          <Text dimColor>{reasoningDraft}</Text>
+        </Box>
+      ) : null}
+      {draftAssistant.length > 0 ? (
+        <Box marginBottom={1} flexDirection="column">
+          <Text color="green" bold>
+            assistant
+          </Text>
+          <Text>{draftAssistant}</Text>
+        </Box>
+      ) : null}
       {props.thinking ? <ThinkingIndicator /> : null}
-      {props.messages.length === 0 && props.notices.length === 0 && !props.thinking ? (
+      {props.messages.length === 0 &&
+      props.notices.length === 0 &&
+      !props.thinking &&
+      !hasDraft &&
+      reasoningEntries.length === 0 ? (
         <Text dimColor>
           Transcript is empty. Type a prompt, or `/` for commands and Skills.
         </Text>
