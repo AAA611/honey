@@ -46,16 +46,15 @@ import type {
 } from "../types.js";
 import { createApprovalRequest } from "./approval.js";
 import {
-  isPlanModeToolAllowed,
-  UPDATE_PLAN_TOOL_NAME
-} from "./planMode.js";
+  authorizeToolCall,
+  toolsForPrompt
+} from "./policy.js";
 import { formatSoftFailure } from "./softFailure.js";
 import {
   formatSubagentResult,
   SPAWN_SUBAGENT_TOOL_NAME
 } from "./subagent.js";
 import { runTurnLoop, type TurnLoopScope } from "./turnLoop.js";
-import { checkToolCallWorkspaceBound } from "./workspaceBound.js";
 
 export class HarnessRuntime {
   readonly toolRegistry: ToolRegistry;
@@ -107,66 +106,63 @@ export class HarnessRuntime {
     }
   ): Promise<ToolExecutionResult> {
     const tool = this.toolRegistry.get(toolCall.toolName);
-    if (!tool) {
-      return {
-        ok: false,
-        content: formatSoftFailure(
-          `Unknown tool: ${toolCall.toolName}`,
-          "That name is not on this Run's Tool surface",
-          "Pick a Tool from the offered list, or adjust the Task to available Tools"
-        )
-      };
-    }
+    const decision = await authorizeToolCall({
+      toolDefinition: tool?.definition ?? null,
+      toolCall,
+      planMode: Boolean(options?.planMode),
+      allowGuardedTools: this.config.allowGuardedTools,
+      workspaceBoundEnabled: this.config.workspaceBound !== false,
+      cwd: this.config.cwd
+    });
 
-    if (options?.planMode && !isPlanModeToolAllowed(toolCall.toolName)) {
-      return {
-        ok: false,
-        content: formatSoftFailure(
-          `Tool not available in Plan Mode: ${toolCall.toolName}`,
-          "Plan Mode only allows the read allowlist plus update_plan",
-          "Use read_file / search_workspace / update_plan, or leave Plan Mode before mutating"
-        )
-      };
-    }
+    const logger = options?.logger;
+    const turnId = options?.turnId ?? null;
 
-    if (!options?.planMode && toolCall.toolName === UPDATE_PLAN_TOOL_NAME) {
-      return {
-        ok: false,
-        content: formatSoftFailure(
-          "update_plan is only available in Plan Mode",
-          "The Session is not in Plan Mode",
-          "Enter Plan Mode with /plan before calling update_plan, or continue without it"
-        )
-      };
-    }
-
-    if (tool.definition.risk === "blocked") {
-      return {
-        ok: false,
-        content: formatSoftFailure(
-          `Blocked tool: ${toolCall.toolName}`,
-          "This Tool is blocked by policy for the Run",
-          "Choose a different Tool that can achieve the Task"
-        )
-      };
-    }
-
-    const workspaceBoundEnabled = this.config.workspaceBound !== false;
-    if (workspaceBoundEnabled) {
-      const bound = await checkToolCallWorkspaceBound({
-        cwd: this.config.cwd,
-        pathParams: tool.definition.pathParams,
-        arguments: toolCall.arguments
-      });
-      if (!bound.ok) {
-        const logger = options?.logger;
-        const turnId = options?.turnId ?? null;
+    switch (decision.kind) {
+      case "unknown_tool":
+        return {
+          ok: false,
+          content: formatSoftFailure(
+            `Unknown tool: ${toolCall.toolName}`,
+            "That name is not on this Run's Tool surface",
+            "Pick a Tool from the offered list, or adjust the Task to available Tools"
+          )
+        };
+      case "plan_denied":
+        if (decision.reason === "update_plan_outside_plan_mode") {
+          return {
+            ok: false,
+            content: formatSoftFailure(
+              "update_plan is only available in Plan Mode",
+              "The Session is not in Plan Mode",
+              "Enter Plan Mode with /plan before calling update_plan, or continue without it"
+            )
+          };
+        }
+        return {
+          ok: false,
+          content: formatSoftFailure(
+            `Tool not available in Plan Mode: ${toolCall.toolName}`,
+            "Plan Mode only allows the read allowlist plus update_plan",
+            "Use read_file / search_workspace / update_plan, or leave Plan Mode before mutating"
+          )
+        };
+      case "blocked":
+        return {
+          ok: false,
+          content: formatSoftFailure(
+            `Blocked tool: ${toolCall.toolName}`,
+            "This Tool is blocked by policy for the Run",
+            "Choose a different Tool that can achieve the Task"
+          )
+        };
+      case "bound_reject":
         logger?.emit(
           "workspace_bound_rejected",
           {
             toolCall,
-            reason: bound.reason,
-            attemptedPath: bound.attemptedPath
+            reason: decision.reason,
+            attemptedPath: decision.attemptedPath
           },
           turnId
         );
@@ -174,65 +170,66 @@ export class HarnessRuntime {
           ok: false,
           content: formatSoftFailure(
             `Workspace bound rejected path for ${toolCall.toolName}`,
-            bound.reason,
+            decision.reason,
             "Use a path under the Session cwd, or ask about disabling Workspace bound if escape is intentional"
           )
         };
-      }
-    }
+      case "needs_approval": {
+        const approvalRequest = createApprovalRequest(toolCall);
+        logger?.emit(
+          "approval_requested",
+          {
+            toolCall,
+            argumentSummary: approvalRequest.argumentSummary
+          },
+          turnId
+        );
 
-    if (tool.definition.risk === "guarded" && !this.config.allowGuardedTools) {
-      const approvalRequest = createApprovalRequest(toolCall);
-      const logger = options?.logger;
-      const turnId = options?.turnId ?? null;
-      logger?.emit(
-        "approval_requested",
-        {
-          toolCall,
-          argumentSummary: approvalRequest.argumentSummary
-        },
-        turnId
-      );
+        const allowed = this.config.requestApproval
+          ? await this.config.requestApproval(approvalRequest)
+          : false;
 
-      const allowed = this.config.requestApproval
-        ? await this.config.requestApproval(approvalRequest)
-        : false;
+        logger?.emit(
+          "approval_decided",
+          {
+            toolCall,
+            allowed,
+            argumentSummary: approvalRequest.argumentSummary,
+            viaHost: Boolean(this.config.requestApproval)
+          },
+          turnId
+        );
 
-      logger?.emit(
-        "approval_decided",
-        {
-          toolCall,
-          allowed,
-          argumentSummary: approvalRequest.argumentSummary,
-          viaHost: Boolean(this.config.requestApproval)
-        },
-        turnId
-      );
-
-      if (!allowed) {
-        if (this.config.requestApproval) {
+        if (!allowed) {
+          if (this.config.requestApproval) {
+            return {
+              ok: false,
+              content: formatSoftFailure(
+                `User denied Approval for ${toolCall.toolName}`,
+                "The user refused this guarded Tool call",
+                "Try a safer Tool, revise the call, or ask the user to approve a different approach"
+              )
+            };
+          }
           return {
             ok: false,
             content: formatSoftFailure(
-              `User denied Approval for ${toolCall.toolName}`,
-              "The user refused this guarded Tool call",
-              "Try a safer Tool, revise the call, or ask the user to approve a different approach"
+              `Guarded tool requires Approval: ${toolCall.toolName}`,
+              "No Approval host is wired and --allow-guarded-tools is off",
+              "Re-run with an Approval host (Session TUI/REPL) or --allow-guarded-tools, or use a safe Tool"
             )
           };
         }
-        return {
-          ok: false,
-          content: formatSoftFailure(
-            `Guarded tool requires Approval: ${toolCall.toolName}`,
-            "No Approval host is wired and --allow-guarded-tools is off",
-            "Re-run with an Approval host (Session TUI/REPL) or --allow-guarded-tools, or use a safe Tool"
-          )
-        };
+        break;
       }
+      case "allow":
+        break;
     }
 
+    // allow / approved needs_approval only occur when Policy saw a Tool definition.
+    const executable = tool!;
     try {
-      return await tool.execute(toolCall.arguments, {
+      return await executable.execute(toolCall.arguments, {
         cwd: this.config.cwd,
         workspaceBound: this.config.workspaceBound !== false,
         skillRegistry: this.skillRegistry,
@@ -277,6 +274,7 @@ export class HarnessSession {
     });
     this.eventLog = createSessionEventLog(this.sessionId, this.runtime.config);
   }
+
 
   get sessionEventLogPath(): string | null {
     return this.eventLog?.path ?? null;
@@ -337,13 +335,9 @@ export class HarnessSession {
   }
 
   private offeredToolDefinitions(): ToolDefinition[] {
-    const all = this.runtime.toolRegistry.definitions();
-    if (this.planMode) {
-      return all.filter((definition) => isPlanModeToolAllowed(definition.name));
-    }
-    return all.filter(
-      (definition) => definition.name !== UPDATE_PLAN_TOOL_NAME
-    );
+    return toolsForPrompt(this.runtime.toolRegistry.definitions(), {
+      planMode: this.planMode
+    });
   }
 
   private setPlanDocument(markdown: string, logger?: EventLogger, turnId?: string) {
@@ -505,13 +499,10 @@ export class HarnessSession {
       onEmit: (event) => this.eventLog?.append(event)
     });
     const turnId = randomUUID();
-    const childTools = this.runtime.toolRegistry
-      .definitions()
-      .filter(
-        (definition) =>
-          definition.name !== SPAWN_SUBAGENT_TOOL_NAME &&
-          definition.name !== UPDATE_PLAN_TOOL_NAME
-      );
+    const childTools = toolsForPrompt(
+      this.runtime.toolRegistry.definitions(),
+      { planMode: false }
+    ).filter((definition) => definition.name !== SPAWN_SUBAGENT_TOOL_NAME);
     const refetchable = new Set(
       childTools.filter((definition) => definition.refetchable).map((d) => d.name)
     );
