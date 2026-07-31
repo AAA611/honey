@@ -3,9 +3,10 @@ import { Box, Text, useApp } from "ink";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessRuntime, HarnessSession } from "../runtime/harness.js";
-import { formatApprovalPrompt } from "../runtime/approval.js";
+import { formatApprovalView, type ApprovalView } from "../runtime/approval.js";
 import type { ProjectInstructionsLoadResult } from "../context/projectInstructions.js";
 import type { ConversationMessage, ProviderStreamDelta } from "../types.js";
+import { ApprovalPanel } from "./ApprovalPanel.js";
 import { StatusBar } from "./StatusBar.js";
 import { SessionBannerView } from "./SessionBannerView.js";
 import { SlashOverlay } from "./SlashOverlay.js";
@@ -114,7 +115,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [approval, setApproval] = useState<null | {
-    prompt: string;
+    view: ApprovalView;
     resolve: (ok: boolean) => void;
   }>(null);
   const [lastKeyDebug, setLastKeyDebug] = useState<string | null>(null);
@@ -174,7 +175,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     props.runtime.config.requestApproval = async (request) =>
       await new Promise<boolean>((resolve) => {
         setApproval({
-          prompt: formatApprovalPrompt(request),
+          view: formatApprovalView(request),
           resolve
         });
       });
@@ -606,6 +607,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
       <StatusBar
         cwd={props.runtime.config.cwd}
         busy={busy}
+        awaitingApproval={Boolean(approval)}
         skillCount={skills.length}
         messageCount={messages.length}
       />
@@ -616,7 +618,7 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           reasoning={reasoning}
           reasoningDraft={reasoningDraft}
           draftAssistant={draftAssistant}
-          thinking={busy}
+          thinking={busy && !approval}
         />
       </Box>
       {slashOpen ? (
@@ -627,28 +629,30 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           lastKeyDebug={lastKeyDebug}
         />
       ) : null}
-      <Box borderStyle="single" borderColor={busy ? "yellow" : "green"} paddingX={1}>
-        <Text color="green">honey› </Text>
-        {approval ? (
-          <Text color="yellow">{approval.prompt}</Text>
-        ) : (
-          <>
-            {/* Sibling Text avoids Ink #867 nested-cursor wrap on 0→1 length. */}
-            <Text>{before}</Text>
-            {busy ? (
-              <Text>
-                {cursor < value.length ? at : ""}
-                {after}
-              </Text>
-            ) : (
-              <>
-                <Text inverse>{at}</Text>
-                <Text>{after}</Text>
-              </>
-            )}
-          </>
-        )}
-      </Box>
+      {approval ? (
+        <ApprovalPanel view={approval.view} />
+      ) : (
+        <Box
+          borderStyle="single"
+          borderColor={busy ? "yellow" : "green"}
+          paddingX={1}
+        >
+          <Text color="green">honey› </Text>
+          {/* Sibling Text avoids Ink #867 nested-cursor wrap on 0→1 length. */}
+          <Text>{before}</Text>
+          {busy ? (
+            <Text>
+              {cursor < value.length ? at : ""}
+              {after}
+            </Text>
+          ) : (
+            <>
+              <Text inverse>{at}</Text>
+              <Text>{after}</Text>
+            </>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }
