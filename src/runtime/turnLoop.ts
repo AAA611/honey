@@ -124,10 +124,6 @@ export async function runTurnLoop(scope: TurnLoopScope): Promise<TurnLoopResult>
       break;
     }
 
-    if (response.reasoning && response.reasoning.length > 0) {
-      scope.onReasoningCommitted?.(response.reasoning);
-    }
-
     logger.emit(
       "model_response",
       {
@@ -142,6 +138,8 @@ export async function runTurnLoop(scope: TurnLoopScope): Promise<TurnLoopResult>
 
     if (response.assistantMessage) {
       appendMessages(scope, [response.assistantMessage]);
+      // One slot per assistant message so the TUI can interleave Reasoning above it.
+      scope.onReasoningCommitted?.(response.reasoning ?? "");
     }
 
     scope.onModelCallComplete?.();

@@ -10,7 +10,11 @@ import { ApprovalPanel } from "./ApprovalPanel.js";
 import { StatusBar } from "./StatusBar.js";
 import { SessionBannerView } from "./SessionBannerView.js";
 import { SlashOverlay } from "./SlashOverlay.js";
-import { TranscriptView } from "./TranscriptView.js";
+import {
+  TranscriptView,
+  type ReasoningExpandedMap,
+  type ToolExpandedMap
+} from "./TranscriptView.js";
 import {
   buildSlashItems,
   filterSlashItems,
@@ -105,6 +109,9 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   const [reasoning, setReasoning] = useState<string[]>(
     () => props.session.snapshot().reasoning ?? []
   );
+  const [reasoningExpanded, setReasoningExpanded] =
+    useState<ReasoningExpandedMap>({});
+  const [toolExpanded, setToolExpanded] = useState<ToolExpandedMap>({});
   const [draftAssistant, setDraftAssistant] = useState("");
   const [reasoningDraft, setReasoningDraft] = useState("");
   const [notices, setNotices] = useState<string[]>([
@@ -138,7 +145,11 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     approval,
     slashOpen,
     slashItems,
-    selectedIndex
+    selectedIndex,
+    reasoning,
+    reasoningExpanded,
+    messages,
+    toolExpanded
   });
   stateRef.current = {
     value,
@@ -147,7 +158,11 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     approval,
     slashOpen,
     slashItems,
-    selectedIndex
+    selectedIndex,
+    reasoning,
+    reasoningExpanded,
+    messages,
+    toolExpanded
   };
 
   const setComposerValue = useCallback((next: string, nextCursor = next.length) => {
@@ -248,6 +263,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         props.session.clear();
         setMessages([]);
         setReasoning([]);
+        setReasoningExpanded({});
+        setToolExpanded({});
         setDraftAssistant("");
         setReasoningDraft("");
         setNotices(["Session cleared."]);
@@ -317,6 +334,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         props.session.clear();
         setMessages([]);
         setReasoning([]);
+        setReasoningExpanded({});
+        setToolExpanded({});
         setDraftAssistant("");
         setReasoningDraft("");
         setNotices(["Session cleared."]);
@@ -481,6 +500,46 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         return;
       }
 
+      // Empty Composer: `r` / `t` toggle latest Reasoning / tool-result blocks.
+      if (
+        !current.slashOpen &&
+        current.value.length === 0 &&
+        !key.ctrl &&
+        !key.meta
+      ) {
+        const keyChar = effectiveInput.toLowerCase();
+        if (keyChar === "r") {
+          let latest = -1;
+          for (let i = 0; i < current.reasoning.length; i += 1) {
+            if ((current.reasoning[i] ?? "").trim().length > 0) {
+              latest = i;
+            }
+          }
+          if (latest >= 0) {
+            setReasoningExpanded((prev) => ({
+              ...prev,
+              [latest]: !prev[latest]
+            }));
+          }
+          return;
+        }
+        if (keyChar === "t") {
+          let latest = -1;
+          for (let i = 0; i < current.messages.length; i += 1) {
+            if (current.messages[i]?.role === "tool") {
+              latest = i;
+            }
+          }
+          if (latest >= 0) {
+            setToolExpanded((prev) => ({
+              ...prev,
+              [latest]: !prev[latest]
+            }));
+          }
+          return;
+        }
+      }
+
       if (current.slashOpen) {
         if (key.upArrow) {
           setSelectedIndex((index) =>
@@ -616,6 +675,8 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
           messages={messages}
           notices={notices}
           reasoning={reasoning}
+          reasoningExpanded={reasoningExpanded}
+          toolExpanded={toolExpanded}
           reasoningDraft={reasoningDraft}
           draftAssistant={draftAssistant}
           thinking={busy && !approval}
