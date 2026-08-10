@@ -23,17 +23,21 @@
     "demo": "node --enable-source-maps dist/cli.js \"read: CONTEXT.md\""
   },
   "engines": {
-    "node": ">=18.18.0"
+    "node": ">=20"
+  },
+  "overrides": {
+    "string-width": "^7.2.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/react": "^18.3.31",
+    "@types/react": "^19.2.0",
     "ink-testing-library": "^4.0.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "ink": "^5.2.1",
-    "react": "^18.3.1"
+    "ink": "^6.8.0",
+    "react": "^19.2.0",
+    "string-width": "^7.2.0"
   }
 }

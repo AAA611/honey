@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Text, useApp } from "ink";
+import { Box, Text, useApp, type DOMElement } from "ink";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { HarnessRuntime, HarnessSession } from "../runtime/harness.js";
@@ -28,6 +28,8 @@ import {
   isSlashDismissKey
 } from "./keys.js";
 import { useComposerInput } from "./useComposerInput.js";
+import { useComposerImeCursor } from "./useComposerImeCursor.js";
+import { COMPOSER_PROMPT } from "./composerImeCursor.js";
 
 const KEYLOG_DIR = join(process.cwd(), ".honey");
 const KEYLOG_PATH = join(KEYLOG_DIR, "keylog.jsonl");
@@ -126,6 +128,9 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
     resolve: (ok: boolean) => void;
   }>(null);
   const [lastKeyDebug, setLastKeyDebug] = useState<string | null>(null);
+  const composerRef = useRef<DOMElement>(null);
+  const caretRowRef = useRef<DOMElement>(null);
+  const [, setImeLayoutTick] = useState(0);
 
   const skills = props.runtime.skillRegistry.list();
   const slashQuery = getSlashQuery(value);
@@ -651,6 +656,11 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
 
   useComposerInput(onInput);
 
+  // Remeasure after mount and whenever Composer remounts (e.g. leave Approval).
+  useEffect(() => {
+    setImeLayoutTick((tick) => tick + 1);
+  }, [approval, busy]);
+
   const overlayIndex =
     slashItems.length === 0
       ? 0
@@ -659,6 +669,12 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
   const before = value.slice(0, cursor);
   const at = cursor < value.length ? value.charAt(cursor) : " ";
   const after = cursor < value.length ? value.slice(cursor + 1) : "";
+
+  useComposerImeCursor({
+    caretRowNode: caretRowRef.current ?? undefined,
+    before,
+    active: !busy && !approval
+  });
 
   return (
     <Box flexDirection="column" width="100%">
@@ -694,24 +710,23 @@ export function SessionTuiApp(props: SessionTuiProps): React.ReactElement {
         <ApprovalPanel view={approval.view} />
       ) : (
         <Box
+          ref={composerRef}
           borderStyle="single"
           borderColor={busy ? "yellow" : "green"}
           paddingX={1}
         >
-          <Text color="green">honey› </Text>
-          {/* Sibling Text avoids Ink #867 nested-cursor wrap on 0→1 length. */}
-          <Text>{before}</Text>
-          {busy ? (
+          <Box ref={caretRowRef} flexDirection="row">
+            <Text color="green">{COMPOSER_PROMPT}</Text>
+            {/*
+              Real terminal caret comes from useCursor (IME). Do not also paint an
+              inverse-space fake caret — that stacks into a vertical double cursor.
+            */}
             <Text>
+              {before}
               {cursor < value.length ? at : ""}
               {after}
             </Text>
-          ) : (
-            <>
-              <Text inverse>{at}</Text>
-              <Text>{after}</Text>
-            </>
-          )}
+          </Box>
         </Box>
       )}
     </Box>

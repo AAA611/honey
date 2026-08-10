@@ -6,12 +6,29 @@
  * Also treats LF as Enter and reassembles split CSI-u reads.
  */
 import { useEffect, useRef } from "react";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { useStdin } from "ink";
-import parseKeypress, {
-  nonAlphanumericKeys
-} from "../../node_modules/ink/build/parse-keypress.js";
 import type { Key } from "ink";
 import { rewriteKittyCsiUChunk } from "./keys.js";
+
+const require = createRequire(import.meta.url);
+const inkBuildDir = dirname(require.resolve("ink"));
+const parseKeypressModule = require(
+  join(inkBuildDir, "parse-keypress.js")
+) as {
+  default: (input: string) => {
+    name?: string;
+    ctrl?: boolean;
+    meta?: boolean;
+    shift?: boolean;
+    option?: boolean;
+    sequence: string;
+  };
+  nonAlphanumericKeys: string[];
+};
+const parseKeypress = parseKeypressModule.default;
+const { nonAlphanumericKeys } = parseKeypressModule;
 
 export type ComposerInputHandler = (input: string, key: Key) => void;
 
@@ -95,6 +112,8 @@ function emitParsed(
     rightArrow: keypress.name === "right",
     pageDown: keypress.name === "pagedown",
     pageUp: keypress.name === "pageup",
+    home: keypress.name === "home",
+    end: keypress.name === "end",
     return: keypress.name === "return" || keypress.name === "enter",
     escape: keypress.name === "escape",
     ctrl: Boolean(keypress.ctrl),
@@ -104,11 +123,15 @@ function emitParsed(
     delete: keypress.name === "delete",
     meta: Boolean(
       keypress.meta || keypress.name === "escape" || keypress.option
-    )
+    ),
+    super: false,
+    hyper: false,
+    capsLock: false,
+    numLock: false
   };
 
   let input: string = keypress.ctrl ? String(keypress.name ?? "") : keypress.sequence;
-  if (nonAlphanumericKeys.includes(keypress.name)) {
+  if (keypress.name && nonAlphanumericKeys.includes(keypress.name)) {
     input = "";
   }
   if (keypress.name === "return" || keypress.name === "enter") {

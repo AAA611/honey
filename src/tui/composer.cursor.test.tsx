@@ -1,9 +1,8 @@
 /**
- * Feedback loop for Ink nested-Text cursor wrap (vadimdemedes/ink#867).
+ * Feedback loop: Composer must not stack a fake inverse caret on top of the
+ * real terminal cursor from useCursor (vertical double-cursor ghosting).
  *
- * When the composer value goes from length 0 → 1 (typing `/` to open skills),
- * a nested `<Text inverse>` cursor renders one row down and punches a gap into
- * the composer bottom border.
+ * Also guards Ink #867 — nested inverse Text must not punch the bottom border.
  *
  * Command:
  *   npx vitest run src/tui/composer.cursor.test.tsx
@@ -30,13 +29,12 @@ function settle(ms = 50): Promise<void> {
 /** True when an inverse cursor leaked onto the box bottom border (Ink #867). */
 function composerBottomBorderHasCursorGap(frame: string): boolean {
   const lines = frame.split("\n");
-  // Composer is the last bordered box; its bottom border is the last frame line.
   const bottom = lines[lines.length - 1] ?? "";
   return /─ /.test(bottom);
 }
 
 describe("composer cursor stays on the input line", () => {
-  it("does not punch the inverse cursor into the bottom border after typing /", async () => {
+  it("does not punch a gap into the bottom border after typing /", async () => {
     const { runtime, session } = createMocks();
     const { lastFrame, stdin, unmount } = render(
       <SessionTuiApp runtime={runtime} session={session} />
@@ -51,8 +49,23 @@ describe("composer cursor stays on the input line", () => {
     expect(frame, "slash overlay open").toContain("honey› /");
     expect(
       composerBottomBorderHasCursorGap(frame),
-      "inverse cursor must stay on the composer line (Ink #867)"
+      "composer bottom border must stay intact (Ink #867)"
     ).toBe(false);
+  });
+
+  it("does not paint an inverse-space fake caret on empty Composer", async () => {
+    const { runtime, session } = createMocks();
+    const { lastFrame, unmount } = render(
+      <SessionTuiApp runtime={runtime} session={session} />
+    );
+    cleanups.push(unmount);
+
+    await settle();
+    const frame = lastFrame() ?? "";
+    expect(frame).toMatch(/honey› /);
+    // Empty idle Composer used to render inverse(" ") as a second block caret
+    // stacked with useCursor — that shows up as vertical ghosting in the TTY.
+    expect(frame).not.toContain("\x1b[7m \x1b[27m");
   });
 });
 
