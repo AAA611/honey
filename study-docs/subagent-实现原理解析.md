@@ -148,7 +148,7 @@ Provider / maxTurns 等     ✓
 
 **唯一的父 → 子输入通道**是 spawn 参数里的 `prompt`。因此 Tool description 要求「Pass a full prompt」：子模型看不见父聊天历史，委派方必须把背景写进 prompt。
 
-测试 [`harness.test.ts`](../src/runtime/harness.test.ts) 用 `PARENT_CHAT_MARKER` 验证：子 Provider 的 messages / systemPrompt 都不含该标记；父侧 Tool result 只有结构化 summary，不含子读到的无关父文件内容。
+测试 [`harness.test.ts`](../src/runtime/__tests__/harness.test.ts) 用 `PARENT_CHAT_MARKER` 验证：子 Provider 的 messages / systemPrompt 都不含该标记；父侧 Tool result 只有结构化 summary，不含子读到的无关父文件内容。
 
 ## 6. 深度固定为 1：两道闸门
 
@@ -241,7 +241,7 @@ const event: HarnessEvent = {
 2. [`src/tools/spawnSubagentTool.ts`](../src/tools/spawnSubagentTool.ts) — Tool 面  
 3. [`src/runtime/subagent.ts`](../src/runtime/subagent.ts) — 结果契约  
 4. [`src/runtime/harness.ts`](../src/runtime/harness.ts) — `runSubagent` + 父路径注入 `runSubagent`  
-5. [`src/runtime/harness.test.ts`](../src/runtime/harness.test.ts) — 隔离、Approval、soft-deny 行为规格  
+5. [`src/runtime/__tests__/harness.test.ts`](../src/runtime/__tests__/harness.test.ts) — 隔离、Approval、soft-deny 行为规格  
 
 ---
 
